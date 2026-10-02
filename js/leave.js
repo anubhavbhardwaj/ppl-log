@@ -137,3 +137,27 @@ export function draftPlan2027(){
      note:"Evening flight on Thursday 9 Dec. Ten WFI days, then the six year-end days. Unused vacation can extend this into January 2028."}
   ];
 }
+
+/* ---------- Flight date candidates ---------- */
+// Departures inside the trip's flexibility window on the same weekday as the planned departure,
+// keeping the same number of nights. Capped to `max` searches, always including the planned dates.
+export function candidateDates(t,max=8){
+  if(!t.depart||!t.return) return [];
+  const f=t.flex||{}; const nights=Number(f.nights)||Math.round((parseYmd(t.return)-parseYmd(t.depart))/864e5);
+  const from=f.departFrom||addDays(t.depart,-7), to=f.departTo||addDays(t.depart,7);
+  const wd=parseYmd(t.depart).getDay(); let list=[];
+  for(const d of eachDay(from,to)) if(parseYmd(d).getDay()===wd) list.push(d);
+  if(!list.includes(t.depart)) list.push(t.depart);
+  list.sort();
+  if(list.length>max){
+    const keep=new Set([t.depart]); const step=(list.length-1)/(max-1);
+    for(let i=0;keep.size<max&&i<max;i++) keep.add(list[Math.round(i*step)]);
+    list=list.filter(d=>keep.has(d));
+  }
+  return list.map(d=>({depart:d,return:addDays(d,nights)}));
+}
+// Move a whole trip (travel dates and leave blocks) by `delta` days.
+export function shiftTrip(t,delta){
+  const s=d=>d?addDays(d,delta):d;
+  return {...t,depart:s(t.depart),return:s(t.return),blocks:(t.blocks||[]).map(b=>({...b,start:s(b.start),end:s(b.end)}))};
+}

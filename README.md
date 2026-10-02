@@ -11,7 +11,15 @@ Static site: plain HTML and ES modules, Firebase Auth (email + password) and Fir
   On trip days the PPL sequence pauses and a travel session is suggested.
 - **Gym**: Phase 1 plan grid, session previews, history.
 - **Travel**: leave balances per year, trips with leave blocks, year calendar, Bavarian (Munich)
-  public holidays, long weekends and bridge days.
+  public holidays, long weekends and bridge days, and flight prices per trip.
+
+## Flight prices
+
+`netlify/functions/fares.mjs` (served at `/api/fares`) searches Google Flights through SerpApi. The key stays on the
+server, and every request must carry a Firebase ID token for this project. Set `SERPAPI_KEY` in Netlify environment
+variables. "Check flight prices" on a trip searches departures in its window on the same weekday as the planned
+departure (up to 8 searches), stores the results in `fares/{tripId}`, and shows what moving the trip saves and what it
+does to your leave. The free SerpApi plan has 100 searches a month; repeated identical searches are cached and free.
 
 ## Code
 
@@ -43,6 +51,7 @@ All data lives under `users/{uid}/`:
   Block types are `vacation`, `yearEnd` and `wfi`. Only weekdays that aren't Bavarian public holidays are charged.
   `carry: true` charges a January block to the previous year (allowed only directly after the year-end block).
   Trips with status `idea` don't count against the balance.
+- `fares/{tripId}`: `{ checkedAt, key, results: [{ depart, return, price, airline, stops, fromAirport, toAirport, level, url }] }`.
 - `leave/{year}`: `{ vacation, yearEnd, wfi }` budgets. Defaults: 30 vacation (6 of them held for year-end) and 15 work from India.
 
 On first sign-in the app records Pull #1 Week 1 as done on 2 Oct 2026 and sets Legs #1 Week 1 as next.
