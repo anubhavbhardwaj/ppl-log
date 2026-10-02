@@ -1,7 +1,7 @@
 /* Travel tab: leave balances, trips, year calendar, holidays and bridges, trip editor. */
 import {$,esc,todayStr,addDays,daysBetween,fmtDate,eachDay,parseYmd,ls,toast,guard,UI,bus} from "./util.js";
-import {S,saveTrip,removeTrip,saveLeave,seedTrips} from "./store.js";
-import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027} from "./leave.js";
+import {S,saveTrip,removeTrip,saveLeave,seedTrips,saveFares,idToken} from "./store.js";
+import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027,candidateDates,shiftTrip} from "./leave.js";
 
 const KIND_PLATE={rome:"push",india:"legs",europe:"pull",other:"home"};
 const STATUS={idea:"Idea",planned:"Planned",booked:"Booked"};
@@ -57,7 +57,77 @@ function tripCard(t){
     <div class="chips">${["vacation","yearEnd","wfi"].filter(k=>c[k]).map(k=>`<span class="chip ${k}">${c[k]} ${k==="wfi"?"WFI":BLOCK_TYPES[k].toLowerCase()}</span>`).join("")||`<span class="chip">No leave days</span>`}</div>
     ${(a.from||[]).length||(a.to||[]).length?`<p class="small muted" style="margin:6px 0 0">Flights ${esc((a.from||[]).join("/"))} → ${esc((a.to||[]).join("/")||"?")}${f.departFrom&&f.departTo?` · depart ${short(f.departFrom)} to ${short(f.departTo)}`:""}</p>`:""}
     ${t.note?`<p class="small muted" style="margin:4px 0 0">${esc(t.note)}</p>`:""}
+    ${fareSection(t)}
     <button class="linkbtn small" style="margin-top:6px" data-edittrip="${t.id}">Edit</button></div>`;
+}
+
+/* ---------- Flight prices ---------- */
+const eur=n=>"€"+Math.round(n).toLocaleString();
+const fareKey=t=>`${(t.airports?.from||[]).join(",")}>${(t.airports?.to||[]).join(",")}|${t.depart&&t.return?daysBetween(t.depart,t.return):""}`;
+const ago=iso=>{const d=Math.floor((Date.now()-new Date(iso))/864e5);return d<=0?"today":d===1?"yesterday":d+" days ago"};
+const fares={left:undefined,loading:false};
+function leaveDelta(t,delta){
+  if(!delta) return "";
+  const a=tripCounts(t,null), b=tripCounts(shiftTrip(t,delta),null);
+  const parts=["vacation","yearEnd","wfi"].map(k=>{const d=b[k]-a[k];return d?`${d>0?"+":"-"}${Math.abs(d)} ${k==="wfi"?"WFI":BLOCK_TYPES[k].toLowerCase()}`:""}).filter(Boolean);
+  return parts.length?parts.join(", "):"same leave";
+}
+function fareSection(t){
+  const a=t.airports||{};
+  if(!(a.from||[]).length||!(a.to||[]).length||!t.depart||!t.return) return "";
+  const n=candidateDates(t).length;
+  const run=UI.fareRun&&UI.fareRun.id===t.id?UI.fareRun:null;
+  if(run) return `<div class="fares"><div class="label">Checking prices · ${run.done} of ${run.total}</div><div class="meter"><span style="width:${run.done/run.total*100}%"></span></div></div>`;
+  const f=S.fares[t.id];
+  const btn=label=>`<button class="btn sm" data-checkfares="${t.id}"${UI.fareRun?" disabled":""}>${label} · ${(n===1?"1 search":n+" searches")}</button>`;
+  if(!f||!(f.results||[]).length) return `<div class="fares">${btn("Check flight prices")}</div>`;
+  const rows=[...f.results].sort((x,y)=>x.depart.localeCompare(y.depart));
+  const priced=rows.filter(r=>r.price!=null);
+  const best=priced.reduce((x,y)=>!x||y.price<x.price?y:x,null);
+  const cur=rows.find(r=>r.depart===t.depart);
+  let head="No prices found for these dates.";
+  if(best){
+    head=`Cheapest <b>${eur(best.price)}</b> · ${short(best.depart)} to ${short(best.return)}`;
+    if(best.depart===t.depart) head+=` · your dates`;
+    else if(cur&&cur.price!=null) head+=` · <span class="save">${eur(cur.price-best.price)} less than your dates</span>`;
+  }
+  return `<div class="fares"><p class="small" style="margin:0">${head}</p>
+    ${f.key!==fareKey(t)?`<p class="small" style="margin:4px 0 0;color:var(--warn)">Airports or trip length changed since this check.</p>`:""}
+    <details${UI.openFares.has(t.id)?" open":""} data-farelist="${t.id}"><summary>${plural(rows.length,"date")} checked</summary>
+    <ul class="list fare-list">${rows.map(r=>{const isCur=r.depart===t.depart;const delta=daysBetween(t.depart,r.depart);
+      return `<li class="${best&&r===best?"best":""}"><div><b>${short(r.depart)} to ${short(r.return)}</b><br><span class="small muted">${r.price==null?"no flights found":[r.fromAirport&&r.toAirport?`${r.fromAirport} → ${r.toAirport}`:"",r.airline,r.stops===0?"direct":r.stops!=null?plural(r.stops,"stop"):""].filter(Boolean).map(esc).join(" · ")}</span>${isCur?"":`<br><span class="small ldelta">${leaveDelta(t,delta)}</span>`}</div>
+        <div class="fare-r"><b class="num">${r.price==null?"–":eur(r.price)}</b>${r.level?`<span class="lvl ${esc(r.level)}">${esc(r.level)}</span>`:""}
+        <span class="row" style="gap:8px;justify-content:flex-end">${r.url?`<a class="small" href="${esc(r.url)}" target="_blank" rel="noopener">Google Flights</a>`:""}${isCur?`<span class="small muted">your dates</span>`:r.price!=null?`<button class="linkbtn small" data-usefare="${t.id}|${r.depart}">Use</button>`:""}</span></div></li>`;}).join("")}</ul></details>
+    <div class="spread" style="margin-top:6px"><span class="small muted">Checked ${ago(f.checkedAt)}${fares.left!=null?` · ${fares.left} searches left this month`:""}</span>${btn("Check again")}</div></div>`;
+}
+async function api(method,body){
+  const token=await idToken();
+  const r=await fetch("/api/fares",{method,headers:{authorization:"Bearer "+token,...(body?{"content-type":"application/json"}:{})},body:body?JSON.stringify(body):undefined});
+  const j=await r.json().catch(()=>({error:"Flight search isn't available (HTTP "+r.status+")."}));
+  if(!r.ok) throw new Error(j.error||"HTTP "+r.status);
+  return j;
+}
+async function refreshLeft(){
+  if(fares.loading) return; fares.loading=true;
+  try{const a=await api("GET");fares.left=a.searchesLeft;}catch(e){fares.left=null;}
+  fares.loading=false; bus.render();
+}
+async function checkPrices(id){
+  const t=S.trips.find(x=>x.id===id); if(!t||UI.fareRun) return;
+  const cands=candidateDates(t);
+  try{const a=await api("GET");fares.left=a.searchesLeft;}catch(e){toast(e.message);return;}
+  if(fares.left!=null&&fares.left<cands.length){toast(fares.left===1?"Only 1 search left this month":`Only ${fares.left} searches left this month`);bus.render();return;}
+  UI.fareRun={id,done:0,total:cands.length}; bus.render();
+  const results=[]; let err=null;
+  for(const c of cands){
+    try{results.push({...c,...await api("POST",{from:t.airports.from,to:t.airports.to,depart:c.depart,return:c.return})});}
+    catch(e){err=e;break;}
+    UI.fareRun.done++; bus.render();
+  }
+  try{if(results.length) await saveFares(id,{checkedAt:new Date().toISOString(),key:fareKey(t),results});}catch(e){err=err||e;}
+  UI.fareRun=null; UI.openFares.add(id);
+  if(err) toast(err.message||"Price check failed"); else toast("Prices updated");
+  refreshLeft();
 }
 function legend(){
   return `<div class="legend small">${[["vacation","Vacation"],["yearEnd","Year-end"],["wfi","WFI"],["intrip","Trip, no leave"],["hol","Holiday"]].map(([k,l])=>`<span><i class="cd ${k}"></i>${l}</span>`).join("")}</div>`;
@@ -163,6 +233,12 @@ export function bindTravel(app){
     const bud={vacation:v("vacation"),yearEnd:v("yearEnd"),wfi:v("wfi")};
     if(bud.yearEnd>bud.vacation){toast("Year-end can't exceed vacation");return;}
     await guard(saveLeave(y,bud));toast("Budget saved")});
+  app.querySelectorAll("[data-checkfares]").forEach(b=>b.onclick=()=>checkPrices(b.dataset.checkfares));
+  app.querySelectorAll("[data-farelist]").forEach(d=>d.ontoggle=()=>{if(!d.isConnected)return;d.open?UI.openFares.add(d.dataset.farelist):UI.openFares.delete(d.dataset.farelist)});
+  app.querySelectorAll("[data-usefare]").forEach(b=>b.onclick=async()=>{const [id,dep]=b.dataset.usefare.split("|");const t=S.trips.find(x=>x.id===id);if(!t)return;
+    const moved=shiftTrip(t,daysBetween(t.depart,dep));
+    await guard(saveTrip(moved));toast(`Moved to ${short(moved.depart)} to ${short(moved.return)}`)});
+  if(UI.tab==="travel"&&!UI.editTrip&&fares.left===undefined&&Object.keys(S.fares).length) refreshLeft();
   // editor
   const t=UI.editTrip; if(!t) return;
   app.querySelectorAll("[data-tback]").forEach(b=>b.onclick=()=>{UI.editTrip=null;UI.confirm=null;render();window.scrollTo(0,0)});
