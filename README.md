@@ -1,9 +1,26 @@
-# Ultimate PPL Log
+# Cadence
 
-Phone-first workout log for Jeff Nippard's Ultimate PPL (Phase 1), trained on a 4-day gym week
-(Mon, Fri, Sat, Sun) with runs, a home session and mobility on office days (Tue, Wed, Thu).
+Phone-first app for daily life: training, leave and travel. Started as a workout log for Jeff Nippard's
+Ultimate PPL (Phase 1) and now also plans vacation, work-from-India days and trips.
 
-Static site: plain HTML/JS, Firebase Auth (email + password) and Firestore. No build step.
+Static site: plain HTML and ES modules, Firebase Auth (email + password) and Firestore. No build step.
+
+## Tabs
+
+- **Today**: current or next trip, this week's training, today's gym session or office-day plan.
+  On trip days the PPL sequence pauses and a travel session is suggested.
+- **Gym**: Phase 1 plan grid, session previews, history.
+- **Travel**: leave balances per year, trips with leave blocks, year calendar, Bavarian (Munich)
+  public holidays, long weekends and bridge days.
+
+## Code
+
+- `js/app.js`: shell, tabs, Today screen, login
+- `js/store.js`: Firebase Auth and Firestore
+- `js/gym.js`: program data, office-day plans, workout logging
+- `js/leave.js`: holidays, workday counting, budgets, checks, bridges (pure functions)
+- `js/travel.js`: Travel tab and trip editor
+- `js/util.js`: helpers and shared UI state
 
 ## Setup
 
@@ -22,5 +39,11 @@ Static site: plain HTML/JS, Firebase Auth (email + password) and Firestore. No b
 All data lives under `users/{uid}/`:
 - `meta/state`: `{ next }`, the index (0-35) of the next session in Phase 1 order.
 - `logs/*`: one document per finished gym or office-day session.
+- `trips/*`: `{ title, kind, status, depart, return, blocks: [{ type, start, end, carry? }], flex: { departFrom, departTo, nights }, airports: { from, to }, note }`.
+  Block types are `vacation`, `yearEnd` and `wfi`. Only weekdays that aren't Bavarian public holidays are charged.
+  `carry: true` charges a January block to the previous year (allowed only directly after the year-end block).
+  Trips with status `idea` don't count against the balance.
+- `leave/{year}`: `{ vacation, yearEnd, wfi }` budgets. Defaults: 30 vacation (6 of them held for year-end) and 15 work from India.
 
 On first sign-in the app records Pull #1 Week 1 as done on 2 Oct 2026 and sets Legs #1 Week 1 as next.
+The Travel tab offers to load the 2027 plan when that year has no trips.
