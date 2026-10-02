@@ -63,7 +63,14 @@ function tripCard(t){
 
 /* ---------- Flight prices ---------- */
 const eur=n=>"€"+Math.round(n).toLocaleString();
-const fareKey=t=>`${(t.airports?.from||[]).join(",")}>${(t.airports?.to||[]).join(",")}|${t.depart&&t.return?daysBetween(t.depart,t.return):""}`;
+// Gulf and wider Middle East hubs. Excluded as layovers when "Avoid Middle East layovers" is on.
+const ME_HUBS=["DXB","DWC","AUH","SHJ","DOH","BAH","KWI","MCT","SLL","RUH","JED","DMM","MED","AMM","AQJ","TLV","BEY","BGW","BSR","EBL","ISU","IKA","THR","MHD","SYZ","DAM","CAI","HBE","SSH","HRG","ADE","SAH"];
+const STOP_LABEL={any:"Any stops",direct:"Direct only",both:"Compare both"};
+const STOP_TEXT={any:"Any stops",direct:"Direct only",both:"Direct vs with stops"};
+const prefs=t=>({stops:"any",avoidME:true,...(t.flights||{})});
+const searchesPer=t=>prefs(t).stops==="both"?2:1;
+const prefText=t=>{const p=prefs(t);return STOP_TEXT[p.stops]+(p.avoidME&&p.stops!=="direct"?" · no Middle East layovers":"");};
+const fareKey=t=>{const p=prefs(t);return `${(t.airports?.from||[]).join(",")}>${(t.airports?.to||[]).join(",")}|${t.depart&&t.return?daysBetween(t.depart,t.return):""}|${p.stops}|${p.avoidME?1:0}`;};
 const ago=iso=>{const d=Math.floor((Date.now()-new Date(iso))/864e5);return d<=0?"today":d===1?"yesterday":d+" days ago"};
 const fares={left:undefined,loading:false};
 function leaveDelta(t,delta){
@@ -75,28 +82,33 @@ function leaveDelta(t,delta){
 function fareSection(t){
   const a=t.airports||{};
   if(!(a.from||[]).length||!(a.to||[]).length||!t.depart||!t.return) return "";
-  const n=candidateDates(t).length;
+  const n=candidateDates(t).length*searchesPer(t);
   const run=UI.fareRun&&UI.fareRun.id===t.id?UI.fareRun:null;
   if(run) return `<div class="fares"><div class="label">Checking prices · ${run.done} of ${run.total}</div><div class="meter"><span style="width:${run.done/run.total*100}%"></span></div></div>`;
   const f=S.fares[t.id];
   const btn=label=>`<button class="btn sm" data-checkfares="${t.id}"${UI.fareRun?" disabled":""}>${label} · ${(n===1?"1 search":n+" searches")}</button>`;
-  if(!f||!(f.results||[]).length) return `<div class="fares">${btn("Check flight prices")}</div>`;
+  const filt=`<p class="small muted" style="margin:0 0 6px">${esc(prefText(t))} · <button class="linkbtn small" data-edittrip="${t.id}">change</button></p>`;
+  if(!f||!(f.results||[]).length) return `<div class="fares">${filt}${btn("Check flight prices")}</div>`;
   const rows=[...f.results].sort((x,y)=>x.depart.localeCompare(y.depart));
   const priced=rows.filter(r=>r.price!=null);
   const best=priced.reduce((x,y)=>!x||y.price<x.price?y:x,null);
   const cur=rows.find(r=>r.depart===t.depart);
-  let head="No prices found for these dates.";
+  const mode=f.mode||"any";
+  const directs=rows.filter(r=>r.direct&&r.direct.price!=null);
+  const bestDirect=directs.reduce((x,y)=>!x||y.direct.price<x.direct.price?y:x,null);
+  let head=mode==="direct"?"No direct flights found for these dates.":"No prices found for these dates.";
   if(best){
     head=`Cheapest <b>${eur(best.price)}</b> · ${short(best.depart)} to ${short(best.return)}`;
     if(best.depart===t.depart) head+=` · your dates`;
     else if(cur&&cur.price!=null) head+=` · <span class="save">${eur(cur.price-best.price)} less than your dates</span>`;
   }
-  return `<div class="fares"><p class="small" style="margin:0">${head}</p>
-    ${f.key!==fareKey(t)?`<p class="small" style="margin:4px 0 0;color:var(--warn)">Airports or trip length changed since this check.</p>`:""}
+  const head2=mode!=="both"?"":bestDirect?`<p class="small" style="margin:2px 0 0">Cheapest direct <b>${eur(bestDirect.direct.price)}</b> · ${short(bestDirect.depart)} to ${short(bestDirect.return)}${best?` · ${eur(bestDirect.direct.price-best.price)} more than with stops`:""}</p>`:`<p class="small" style="margin:2px 0 0">No direct flights found for these dates.</p>`;
+  return `<div class="fares">${filt}<p class="small" style="margin:0">${head}</p>${head2}
+    ${f.key!==fareKey(t)?`<p class="small" style="margin:4px 0 0;color:var(--warn)">Airports, trip length or flight filters changed since this check.</p>`:""}
     <details${UI.openFares.has(t.id)?" open":""} data-farelist="${t.id}"><summary>${plural(rows.length,"date")} checked</summary>
     <ul class="list fare-list">${rows.map(r=>{const isCur=r.depart===t.depart;const delta=daysBetween(t.depart,r.depart);
-      return `<li class="${best&&r===best?"best":""}"><div><b>${short(r.depart)} to ${short(r.return)}</b><br><span class="small muted">${r.price==null?"no flights found":[r.fromAirport&&r.toAirport?`${r.fromAirport} → ${r.toAirport}`:"",r.airline,r.stops===0?"direct":r.stops!=null?plural(r.stops,"stop"):""].filter(Boolean).map(esc).join(" · ")}</span>${isCur?"":`<br><span class="small ldelta">${leaveDelta(t,delta)}</span>`}</div>
-        <div class="fare-r"><b class="num">${r.price==null?"–":eur(r.price)}</b>${r.level?`<span class="lvl ${esc(r.level)}">${esc(r.level)}</span>`:""}
+      return `<li class="${best&&r===best?"best":""}"><div><b>${short(r.depart)} to ${short(r.return)}</b><br><span class="small muted">${r.price==null?"no flights found":[r.fromAirport&&r.toAirport?`${r.fromAirport} → ${r.toAirport}`:"",r.airline,r.stops===0?"direct":r.stops!=null?plural(r.stops,"stop")+((r.via||[]).length?" via "+r.via.join(", "):""):""].filter(Boolean).map(esc).join(" · ")}</span>${isCur?"":`<br><span class="small ldelta">${leaveDelta(t,delta)}</span>`}</div>
+        <div class="fare-r"><b class="num">${r.price==null?"–":eur(r.price)}</b>${mode==="both"&&r.stops!==0?`<span class="small muted num">${r.direct&&r.direct.price!=null?"direct "+eur(r.direct.price):"no direct"}</span>`:""}${r.level?`<span class="lvl ${esc(r.level)}">${esc(r.level)}</span>`:""}
         <span class="row" style="gap:8px;justify-content:flex-end">${r.url?`<a class="small" href="${esc(r.url)}" target="_blank" rel="noopener">Google Flights</a>`:""}${isCur?`<span class="small muted">your dates</span>`:r.price!=null?`<button class="linkbtn small" data-usefare="${t.id}|${r.depart}">Use</button>`:""}</span></div></li>`;}).join("")}</ul></details>
     <div class="spread" style="margin-top:6px"><span class="small muted">Checked ${ago(f.checkedAt)}${fares.left!=null?` · ${fares.left} searches left this month`:""}</span>${btn("Check again")}</div></div>`;
 }
@@ -114,17 +126,30 @@ async function refreshLeft(){
 }
 async function checkPrices(id){
   const t=S.trips.find(x=>x.id===id); if(!t||UI.fareRun) return;
-  const cands=candidateDates(t);
+  const cands=candidateDates(t); const p=prefs(t); const total=cands.length*searchesPer(t);
+  const exclude=p.avoidME?ME_HUBS:[];
   try{const a=await api("GET");fares.left=a.searchesLeft;}catch(e){toast(e.message);return;}
-  if(fares.left!=null&&fares.left<cands.length){toast(fares.left===1?"Only 1 search left this month":`Only ${fares.left} searches left this month`);bus.render();return;}
-  UI.fareRun={id,done:0,total:cands.length}; bus.render();
+  if(fares.left!=null&&fares.left<total){toast(fares.left===1?"Only 1 search left this month":`Only ${fares.left} searches left this month`);bus.render();return;}
+  UI.fareRun={id,done:0,total}; bus.render();
+  const base={from:t.airports.from,to:t.airports.to};
+  const step=async body=>{const r=await api("POST",{...base,...body});UI.fareRun.done++;bus.render();return r;};
   const results=[]; let err=null;
   for(const c of cands){
-    try{results.push({...c,...await api("POST",{from:t.airports.from,to:t.airports.to,depart:c.depart,return:c.return})});}
-    catch(e){err=e;break;}
-    UI.fareRun.done++; bus.render();
+    const dates={depart:c.depart,return:c.return};
+    try{
+      if(p.stops==="direct") results.push({...c,...await step({...dates,stops:"direct"})});
+      else{
+        const any=await step({...dates,stops:"any",excludeConns:exclude});
+        const row={...c,...any};
+        if(p.stops==="both"){
+          if(any.price!=null&&any.stops===0){row.direct={price:any.price,airline:any.airline,url:any.url};UI.fareRun.total--;bus.render();}
+          else{const d=await step({...dates,stops:"direct"});row.direct=d.price!=null?{price:d.price,airline:d.airline,url:d.url}:null;}
+        }
+        results.push(row);
+      }
+    }catch(e){err=e;break;}
   }
-  try{if(results.length) await saveFares(id,{checkedAt:new Date().toISOString(),key:fareKey(t),results});}catch(e){err=err||e;}
+  try{if(results.length) await saveFares(id,{checkedAt:new Date().toISOString(),key:fareKey(t),mode:p.stops,avoidME:p.avoidME,results});}catch(e){err=err||e;}
   UI.fareRun=null; UI.openFares.add(id);
   if(err) toast(err.message||"Price check failed"); else toast("Prices updated");
   refreshLeft();
@@ -157,7 +182,7 @@ function budgetForm(y){
 }
 
 /* ---------- Trip editor ---------- */
-const blank=()=>({title:"",kind:"rome",status:"idea",depart:"",return:"",blocks:[],flex:{departFrom:"",departTo:"",nights:""},airports:structuredClone(DEFAULT_AIRPORTS.rome),note:""});
+const blank=()=>({title:"",kind:"rome",status:"idea",depart:"",return:"",blocks:[],flights:{stops:"any",avoidME:true},flex:{departFrom:"",departTo:"",nights:""},airports:structuredClone(DEFAULT_AIRPORTS.rome),note:""});
 function renderEditor(){
   const t=UI.editTrip; const isNew=!t.id; const a=t.airports||{from:[],to:[]}; const f=t.flex||{};
   const c=tripCounts(t,null);
@@ -192,7 +217,9 @@ function renderEditor(){
       <div class="grid2"><label><span class="label">Earliest departure</span><input class="field" type="date" data-f="flex.departFrom" value="${esc(f.departFrom)}"></label>
         <label><span class="label">Latest departure</span><input class="field" type="date" data-f="flex.departTo" value="${esc(f.departTo)}"></label></div>
       <div class="grid2"><label><span class="label">Nights</span><input class="field num" type="number" min="1" inputmode="numeric" data-f="flex.nights" value="${esc(f.nights)}"></label></div>
-      <p class="small muted" style="margin:0">The flight watcher will search departures in this window and suggest cheaper dates.</p>
+      <div class="grid2"><label><span class="label">Stops</span><select class="field" data-f="flights.stops">${Object.entries(STOP_LABEL).map(([k,l])=>`<option value="${k}"${prefs(t).stops===k?" selected":""}>${l}</option>`).join("")}</select></label>
+        <label class="check" style="align-self:end;padding-bottom:10px"><input type="checkbox" data-f="flights.avoidME"${prefs(t).avoidME?" checked":""}><span class="small"><b>Avoid Middle East layovers</b></span></label></div>
+      <p class="small muted" style="margin:0">Searches departures in this window and suggests cheaper dates. ${prefs(t).stops==="both"?"Compare uses up to 2 searches per date. ":""}Avoiding layovers skips connections in the Gulf, Iran, Iraq, the Levant and Egypt; a flight can still pass over the region.</p>
     </div>
     <div class="card"><label><span class="label">Note</span><textarea rows="2" data-f="note">${esc(t.note)}</textarea></label></div>
     ${p.length?`<div class="card warn"><ul class="small" style="margin:0;padding-left:18px">${p.map(x=>`<li>${esc(x.replace(/^[^:]*:\s*/,""))}</li>`).join("")}</ul></div>`:""}

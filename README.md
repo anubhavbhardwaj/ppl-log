@@ -19,7 +19,8 @@ Static site: plain HTML and ES modules, Firebase Auth (email + password) and Fir
 server, and every request must carry a Firebase ID token for this project. Set `SERPAPI_KEY` in Netlify environment
 variables. "Check flight prices" on a trip searches departures in its window on the same weekday as the planned
 departure (up to 8 searches), stores the results in `fares/{tripId}`, and shows what moving the trip saves and what it
-does to your leave. The free SerpApi plan has 100 searches a month; repeated identical searches are cached and free.
+does to your leave. Each trip can search any stops, direct only, or compare both (up to 2 searches per date),
+and can avoid layovers at Middle East hubs (Gulf, Iran, Iraq, Levant, Egypt) via SerpApi `exclude_conns`. The free SerpApi plan has 100 searches a month; repeated identical searches are cached and free.
 
 ## Code
 
