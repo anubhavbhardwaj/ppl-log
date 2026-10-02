@@ -1,6 +1,7 @@
 /* Flight prices via SerpApi (Google Flights). The API key never leaves the server.
-   POST /api/fares   { from:["MUC"], to:["FCO","CIA"], depart:"2027-01-30", return:"2027-02-01", adults?:1 }
-                     -> { price, currency, airline, stops, duration, fromAirport, toAirport, departTime, url, level, typical }
+   POST /api/fares   { from:["MUC"], to:["FCO","CIA"], depart:"2027-01-30", return:"2027-02-01", adults?:1,
+                       stops?:"any"|"direct"|"max1", excludeConns?:["DXB","DOH"] }
+                     -> { price, currency, airline, stops, via, duration, fromAirport, toAirport, departTime, url, level, typical }
    GET  /api/fares   -> { searchesLeft, searchesPerMonth, thisMonth }  (account info, free to call)
    Every request must carry a Firebase ID token for this project: Authorization: Bearer <token>.
    Env: SERPAPI_KEY (required), FIREBASE_PROJECT_ID (defaults to this project). */
@@ -33,25 +34,37 @@ export async function verifyToken(token,fetchImpl=fetch,now=Date.now()/1000){
 }
 
 /* ---------- SerpApi ---------- */
-function cheapest(data){
-  const all=[...(data.best_flights||[]),...(data.other_flights||[])].filter(f=>typeof f.price==="number");
+const STOPS={any:"0",direct:"1",max1:"2"};
+// Cheapest itinerary that respects the stop limit and avoids excluded layover airports.
+// Google applies the same filters; this is a second check on what comes back.
+function cheapest(data,{maxStops=Infinity,exclude=[]}={}){
+  const bad=new Set(exclude);
+  const all=[...(data.best_flights||[]),...(data.other_flights||[])].filter(f=>{
+    if(typeof f.price!=="number") return false;
+    const legs=f.flights||[]; const via=(f.layovers||[]).map(l=>l.id).filter(Boolean);
+    return Math.max(0,legs.length-1)<=maxStops&&!via.some(c=>bad.has(c))&&!legs.slice(1).some(l=>bad.has(l.departure_airport?.id));
+  });
   if(!all.length) return null;
   const f=all.reduce((a,b)=>b.price<a.price?b:a);
   const legs=f.flights||[]; const first=legs[0]||{}, last=legs[legs.length-1]||{};
   const pi=data.price_insights||{};
+  const via=(f.layovers||[]).map(l=>l.id).filter(Boolean);
   return {price:f.price,airline:[...new Set(legs.map(l=>l.airline).filter(Boolean))].join(" + "),stops:Math.max(0,legs.length-1),
+    via:via.length?via:legs.slice(1).map(l=>l.departure_airport?.id).filter(Boolean),
     duration:f.total_duration||null,fromAirport:first.departure_airport?.id||null,toAirport:last.arrival_airport?.id||null,
     departTime:first.departure_airport?.time||null,level:pi.price_level||null,typical:pi.typical_price_range||null};
 }
-export async function searchFare({from,to,depart,ret,adults},key,fetchImpl=fetch){
-  const q=new URLSearchParams({engine:"google_flights",departure_id:from.join(","),arrival_id:to.join(","),outbound_date:depart,return_date:ret,
-    type:"1",currency:"EUR",gl:"de",hl:"en",adults:String(adults||1),api_key:key});
+export async function searchFare({from,to,depart,ret,adults,stops="any",excludeConns=[]},key,fetchImpl=fetch){
+  const p={engine:"google_flights",departure_id:from.join(","),arrival_id:to.join(","),outbound_date:depart,return_date:ret,
+    type:"1",currency:"EUR",gl:"de",hl:"en",adults:String(adults||1),stops:STOPS[stops]||"0"};
+  if(excludeConns.length&&stops!=="direct") p.exclude_conns=excludeConns.join(",");
+  const q=new URLSearchParams({...p,api_key:key});
   const r=await fetchImpl("https://serpapi.com/search.json?"+q);
   const data=await r.json().catch(()=>({}));
   if(!r.ok&&!data.error) throw new Error("SerpApi HTTP "+r.status);
   const url=data.search_metadata?.google_flights_url||null;
   if(data.error&&!/no results|hasn't returned any results/i.test(data.error)) throw new Error(data.error);
-  const best=cheapest(data);
+  const best=cheapest(data,{maxStops:stops==="direct"?0:stops==="max1"?1:Infinity,exclude:excludeConns});
   return {...(best||{price:null}),currency:"EUR",url};
 }
 
@@ -74,7 +87,9 @@ export default async function handler(req,_ctx,fetchImpl=fetch){
   if(!from.length||!to.length) return json(400,{error:"Add departure and arrival airports."});
   if(!DATE.test(b.depart||"")||!DATE.test(b.return||"")||b.depart>b.return) return json(400,{error:"Check the dates."});
   const adults=Math.min(4,Math.max(1,Number(b.adults)||1));
-  try{return json(200,await searchFare({from,to,depart:b.depart,ret:b.return,adults},key,fetchImpl));}
+  const stops=STOPS[b.stops]?b.stops:"any";
+  const excludeConns=[...new Set((b.excludeConns||[]).filter(x=>CODE.test(x)))].slice(0,40);
+  try{return json(200,await searchFare({from,to,depart:b.depart,ret:b.return,adults,stops,excludeConns},key,fetchImpl));}
   catch(e){return json(502,{error:String(e.message||e).slice(0,200)});}
 }
 
