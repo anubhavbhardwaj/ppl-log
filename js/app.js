@@ -20,6 +20,9 @@ function render(){
   else app.innerHTML=renderToday();
   bindGym(app); bindTravel(app);
   app.querySelectorAll("[data-signout]").forEach(b=>b.onclick=()=>logout());
+  app.querySelectorAll("[data-install]").forEach(b=>b.onclick=async()=>{if(!install.prompt)return;install.prompt.prompt();
+    const r=await install.prompt.userChoice.catch(()=>null);install.prompt=null;if(r&&r.outcome==="accepted")install.done=true;render();});
+  app.querySelectorAll("[data-installlater]").forEach(b=>b.onclick=()=>{ls.set("cad_install_later",Date.now());render();});
 }
 bus.render=render;
 
@@ -31,6 +34,7 @@ function renderToday(){
     ${weekStrip(ds=>tripOn(S.trips,ds))}
     ${gymToday(currentTrip())}
     <div class="card"><div class="label">Your week</div><p class="small muted" style="margin:6px 0 0">Gym on Mon, Fri, Sat and Sun, in program order. Tue easy run, Wed home session, Thu run or mobility depending on what Friday holds. On trip days the program waits and you get a travel session instead.</p></div>
+    ${installCard()}
     <p class="small muted" style="text-align:center">Signed in as ${esc(S.user?.email||"")} · <button class="linkbtn small" data-signout>Sign out</button></p>
   </div>`;
 }
@@ -52,6 +56,24 @@ function bindLogin(){
     try{await login($("#email").value.trim(),$("#pw").value);}
     catch(e){err.textContent=(e.code==="auth/invalid-credential"||e.code==="auth/wrong-password"||e.code==="auth/user-not-found")?"Email or password is wrong.":e.code==="auth/too-many-requests"?"Too many attempts. Wait a minute and try again.":"Couldn't sign in. Check your connection.";err.hidden=false;btn.disabled=false;}
   });
+}
+
+/* ---------- Install on phone ---------- */
+const install={prompt:null,done:false};
+const standalone=()=>matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+const isIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();install.prompt=e;render();});
+window.addEventListener("appinstalled",()=>{install.prompt=null;install.done=true;render();});
+function installCard(){
+  if(standalone()||install.done) return "";
+  const later=ls.get("cad_install_later"); if(later&&Date.now()-later<14*864e5) return "";
+  const notNow=`<button class="linkbtn small" style="color:var(--muted)" data-installlater>Not now</button>`;
+  if(install.prompt) return `<div class="card install"><div><div class="label">Get the app</div><p class="small muted" style="margin:4px 0 0">Install Cadence on your home screen. It opens full screen and works offline.</p></div><div class="row" style="margin-top:10px"><button class="btn primary sm" data-install>Install Cadence</button>${notNow}</div></div>`;
+  if(isIOS()) return `<div class="card install"><div class="label">Get the app</div><p class="small muted" style="margin:4px 0 0">In Safari, tap <b>Share</b> <span aria-hidden="true">⎙</span>, then <b>Add to Home Screen</b>. Cadence then opens full screen like an app.</p><div style="margin-top:6px">${notNow}</div></div>`;
+  return "";
+}
+if("serviceWorker" in navigator&&(location.protocol==="https:"||location.hostname==="localhost")){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(e=>console.warn("SW",e)));
 }
 
 initStore(render);
