@@ -1,10 +1,9 @@
-// Firebase web config. Firebase console > Project settings > General > Your apps > Web app > SDK setup.
-// These values are not secrets: access is enforced by firestore.rules and Firebase Auth.
+// Firebase web config (project ppl-log-d4461). Not secret: access is enforced by firestore.rules and Firebase Auth.
 export const firebaseConfig = {
-  apiKey: "REPLACE_ME",
-  authDomain: "REPLACE_ME.firebaseapp.com",
-  projectId: "REPLACE_ME",
-  storageBucket: "REPLACE_ME.appspot.com",
-  messagingSenderId: "REPLACE_ME",
-  appId: "REPLACE_ME"
+  apiKey: "AIzaSyBKHMiBhuk4S1C6ozPQi-qd_cpIC65W398",
+  authDomain: "ppl-log-d4461.firebaseapp.com",
+  projectId: "ppl-log-d4461",
+  storageBucket: "ppl-log-d4461.firebasestorage.app",
+  messagingSenderId: "423359988126",
+  appId: "1:423359988126:web:5473650dd93508b1b5d68f"
 };
