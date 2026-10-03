@@ -2,7 +2,7 @@
    flight prices and details. Calendar, bridges, holidays and budget sit in collapsible sections. */
 import {$,esc,todayStr,addDays,daysBetween,fmtDate,eachDay,parseYmd,ls,toast,guard,UI,bus} from "./util.js";
 import {S,saveTrip,removeTrip,saveLeave,seedTrips,saveFares,idToken,bumpUsage} from "./store.js";
-import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027,candidateDates,shiftTrip,bookingAdvice,bookingWindow,unchargedWorkdays,longHaul,BAG_FEE,flightPrefs,fareKey,searchParams,searchDepart,moveTrip,scoreOptions,SCORE} from "./leave.js";
+import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027,candidateDates,shiftTrip,bookingAdvice,bookingWindow,unchargedWorkdays,longHaul,BAG_FEE,PREMIUM_TOP,flightPrefs,fareKey,searchParams,searchDepart,moveTrip,scoreOptions,SCORE} from "./leave.js";
 
 const KIND_PLATE={rome:"push",india:"legs",europe:"pull",other:"home"};
 const STATUS={idea:"Idea",planned:"Planned",booked:"Booked"};
@@ -136,7 +136,7 @@ const STOP_LABEL={any:"Any stops",direct:"Direct only",both:"Compare both"};
 const STOP_TEXT={any:"Any stops",direct:"Direct only",both:"Direct vs with stops"};
 const prefs=flightPrefs;
 const searchesPer=t=>prefs(t).stops==="both"?2:1;
-const prefText=t=>{const p=prefs(t);return STOP_TEXT[p.stops]+(p.avoidME&&p.stops!=="direct"?" · no Middle East layovers":"")+(p.checkedBag?" · checked bag":"")+(p.carryOn?" · carry-on":"")+(p.weekendSaver?" · weekend-saver: out Fri after 14:00, back Mon by 09:00":"");};
+const prefText=t=>{const p=prefs(t);return STOP_TEXT[p.stops]+(p.avoidME&&p.stops!=="direct"?" · no Middle East layovers":"")+(p.checkedBag?" · checked bag":"")+(p.carryOn?" · carry-on":"")+(p.comparePremium?` · premium economy if ≤ €${Number(p.premiumBonus)||0} more`:"")+(p.weekendSaver?" · weekend-saver: out Fri after 14:00, back Mon by 09:00":"");};
 // Price to compare: the fare plus the estimated checked-bag cost when the fare comes without one.
 const effP=r=>r.eff??r.price;
 const bagLine=r=>r.bagFee?`fare ${eur(r.price)} + ~${eur(r.bagFee)} bag`:r.bag==="included"?"bag included":r.bag==="fee"?"bag for a fee":"";
@@ -150,11 +150,11 @@ function leaveDelta(t,r){
 function fareSection(t){
   const a=t.airports||{};
   if(!(a.from||[]).length||!(a.to||[]).length||!t.depart||!t.return) return "";
-  const n=candidateDates(t).length*searchesPer(t);
+  const nd=candidateDates(t).length; const n=nd*searchesPer(t)+(prefs(t).comparePremium?Math.min(nd,PREMIUM_TOP+1):0);
   const run=UI.fareRun&&UI.fareRun.id===t.id?UI.fareRun:null;
   if(run) return `<div class="fares"><div class="label">Checking prices · ${run.done} of ${run.total}</div><div class="meter"><span style="width:${run.done/run.total*100}%"></span></div></div>`;
   const f=S.fares[t.id];
-  const btn=label=>`<button class="btn sm" data-checkfares="${t.id}"${UI.fareRun?" disabled":""}>${label} · ${(n===1?"1 search":n+" searches")}</button>`;
+  const btn=label=>`<button class="btn sm" data-checkfares="${t.id}"${UI.fareRun?" disabled":""}>${label} · ${prefs(t).comparePremium?"up to ":""}${(n===1?"1 search":n+" searches")}</button>`;
   const filt=`<p class="small muted" style="margin:0 0 6px">${esc(prefText(t))}</p>`;
   if(!f||!(f.results||[]).length) return `<div class="fares first">${filt}${btn("Check flight prices")}</div>`;
   const rows=[...f.results].sort((x,y)=>x.depart.localeCompare(y.depart));
@@ -176,7 +176,7 @@ function fareSection(t){
     <details${UI.openFares.has(t.id)?" open":""} data-farelist="${t.id}"><summary>${plural(rows.length,"date")} checked</summary>
     <ul class="list fare-list">${rows.map(r=>{const isCur=r.depart===t.depart&&r.return===t.return;
       return `<li class="${best&&r===best?"best":""}"><div><b>${short(r.depart)} to ${short(r.return)}</b><br><span class="small muted">${r.price==null?"no flights found":[r.fromAirport&&r.toAirport?`${r.fromAirport} → ${r.toAirport}`:"",r.airline,r.stops===0?"direct":r.stops!=null?plural(r.stops,"stop")+((r.via||[]).length?" via "+r.via.join(", "):""):""].filter(Boolean).map(esc).join(" · ")}</span>${isCur?"":`<br><span class="small ldelta">${leaveDelta(t,r)}</span>`}</div>
-        <div class="fare-r"><b class="num">${r.price==null?"–":eur(effP(r))}</b>${r.price!=null&&bagLine(r)?`<span class="small muted num">${esc(bagLine(r))}</span>`:""}${mode==="both"&&r.stops!==0?`<span class="small muted num">${r.direct&&r.direct.price!=null?"direct "+eur(r.direct.price):"no direct"}</span>`:""}${r.level?`<span class="lvl ${esc(r.level)}">${esc(r.level)}</span>`:""}
+        <div class="fare-r"><b class="num">${r.price==null?"–":eur(effP(r))}</b>${r.price!=null&&bagLine(r)?`<span class="small muted num">${esc(bagLine(r))}</span>`:""}${r.pe?`<span class="small num pe-line">${r.pe.price!=null?`Premium ${eur(effP(r.pe))}${r.pe.bagFee?" incl. bag":""}${r.price!=null&&effP(r.pe)-effP(r)<=(Number(prefs(t).premiumBonus)||0)?" ✓":""}`:"no premium"}</span>`:""}${mode==="both"&&r.stops!==0?`<span class="small muted num">${r.direct&&r.direct.price!=null?"direct "+eur(r.direct.price):"no direct"}</span>`:""}${r.level?`<span class="lvl ${esc(r.level)}">${esc(r.level)}</span>`:""}
         <span class="row" style="gap:8px;justify-content:flex-end">${r.url?`<a class="small" href="${esc(r.url)}" target="_blank" rel="noopener">Google Flights</a>`:""}${isCur?`<span class="small muted">your dates</span>`:r.price!=null?`<button class="linkbtn small" data-usefare="${t.id}|${r.depart}|${r.return}">Use</button>`:""}</span></div></li>`;}).join("")}</ul></details>
     <div class="spread" style="margin-top:6px"><span class="small muted">Checked ${ago(f.checkedAt)}${fares.left!=null?` · ${fares.left} searches left this month`:""}</span>${btn("Check again")}</div></div>`;
 }
@@ -200,9 +200,9 @@ const fmtLeave=l=>{const p=["vacation","yearEnd","wfi"].filter(k=>l[k]).map(k=>`
 function aiPayload(t,opts,pick){
   const y=Number(t.depart.slice(0,4)); const b=balances(S.trips,S.leave,y); const p=prefs(t);
   return {trip:{title:t.title,kind:t.kind,depart:t.depart,return:t.return,leaveNow:tripCounts(t,null),note:t.note||""},
-    prefs:{stops:p.stops,avoidME:p.avoidME,weekendSaver:p.weekendSaver},
+    prefs:{stops:p.stops,avoidME:p.avoidME,weekendSaver:p.weekendSaver,checkedBag:p.checkedBag,comparePremium:p.comparePremium,preferPremiumIfAtMostMore:p.premiumBonus},
     balances:{vacationLeft:b.flexible.left,yearEndLeft:b.yearEnd.left,wfiLeft:b.wfi.left},scorerPick:pick,
-    options:opts.map((r,i)=>({i,depart:fmtDate(r.depart),return:fmtDate(r.return),price:effP(r),farePrice:r.price,bag:r.bag||"unknown",estimatedBagFeeAdded:r.bagFee||0,stops:r.stops,via:r.via||[],airline:r.airline||"",
+    options:opts.map((r,i)=>({i,depart:fmtDate(r.depart),return:fmtDate(r.return),recommendedCabin:r.cabin,premiumEconomyPrice:r.pe&&r.pe.price!=null?effP(r.pe):null,premiumEconomyBag:r.pe?r.pe.bag:null,price:effP(r),farePrice:r.price,bag:r.bag||"unknown",estimatedBagFeeAdded:r.bagFee||0,stops:r.stops,via:r.via||[],airline:r.airline||"",
       departTime:r.departTime||"",directPrice:r.direct?r.direct.price:null,priceLevel:r.level||"",leaveChange:r.leave,score:r.score,isCurrentDates:r.depart===t.depart&&r.return===t.return}))};
 }
 async function askAI(id){
@@ -224,7 +224,7 @@ function recommendCard(t){
   const f=S.fares[t.id]; const top=opts[0];
   const aiOk=f.ai&&f.ai.for===f.checkedAt; const pickRow=aiOk?opts.find(r=>r.depart===f.ai.depart)||top:top;
   const isCur=pickRow.depart===t.depart&&pickRow.return===t.return;
-  const line=r=>`<b>${fmtDate(r.depart)} to ${fmtDate(r.return)}</b> · <b class="num">${eur(effP(r))}</b><br><span class="small muted">${[r.airline,bagLine(r),r.stops===0?"direct":plural(r.stops||0,"stop")+((r.via||[]).length?" via "+r.via.join(", "):"")].filter(Boolean).map(esc).join(" · ")} · ${fmtLeave(r.leave)}</span>`;
+  const line=r=>r.cabin==="premium"?`<b>${fmtDate(r.depart)} to ${fmtDate(r.return)}</b> · <b class="num">${eur(r.cabinPrice)}</b> <span class="chip pe">Premium economy</span><br><span class="small muted">${[r.pe.airline,r.pe.bagFee?`fare ${eur(r.pe.price)} + ~${eur(r.pe.bagFee)} bag`:r.pe.bag==="included"?"bag included":"",r.price!=null?`${eur(r.cabinPrice-effP(r))} more than economy (${eur(effP(r))}${r.bagFee?" incl. bag":""})`:"",r.pe.stops===0?"direct":plural(r.pe.stops||0,"stop")+((r.pe.via||[]).length?" via "+r.pe.via.join(", "):"")].filter(Boolean).map(esc).join(" · ")} · ${fmtLeave(r.leave)}</span>`:`<b>${fmtDate(r.depart)} to ${fmtDate(r.return)}</b> · <b class="num">${eur(effP(r))}</b><br><span class="small muted">${[r.airline,bagLine(r),r.stops===0?"direct":plural(r.stops||0,"stop")+((r.via||[]).length?" via "+r.via.join(", "):"")].filter(Boolean).map(esc).join(" · ")} · ${fmtLeave(r.leave)}</span>`;
   return `<div class="card reco"><div class="spread"><div class="label">Best option</div><span class="small muted">${aiOk?"AI pick":"Scored"}</span></div>
     <p style="margin:6px 0 0">${line(pickRow)}</p>
     ${aiOk&&f.ai.headline?`<p class="small" style="margin:8px 0 0">${esc(f.ai.headline)}</p>`:""}
@@ -233,7 +233,7 @@ function recommendCard(t){
     <div class="row" style="margin-top:10px">${isCur?`<span class="small muted">These are your trip's dates.</span>`:`<button class="btn sm primary" data-usefare="${t.id}|${pickRow.depart}|${pickRow.return}">Use these dates</button>`}
       ${ai.busy===t.id?`<span class="small muted">Asking AI…</span>`:`<button class="btn sm ghost" data-askai="${t.id}">${aiOk?"Ask AI again":"Ask AI"}</button>`}</div>
     ${ai.available===false?`<p class="small" style="margin:8px 0 0;color:var(--warn)">${aiHelp()}</p>`:""}
-    <details style="margin-top:6px"><summary>How options are scored</summary><p class="small muted" style="margin:6px 0 0">Fare + €${SCORE.vacation} per extra vacation day + €${SCORE.wfi} per extra WFI day + €${SCORE.stop} per stop. Days saved count in your favour. ${aiOk?`The AI (${esc(f.ai.model||"Groq")}) sees the same ranked list and your balances, and explains its pick.`:""}</p></details>
+    <details style="margin-top:6px"><summary>How options are scored</summary><p class="small muted" style="margin:6px 0 0">Fare including bags${prefs(t).comparePremium?` (premium economy counts €${Number(prefs(t).premiumBonus)||0} less, so it wins when it costs at most that much more)`:""} + €${SCORE.vacation} per extra vacation day + €${SCORE.wfi} per extra WFI day + €${SCORE.stop} per stop. Days saved count in your favour. ${aiOk?`The AI (${esc(f.ai.model||"Groq")}) sees the same ranked list and your balances, and explains its pick.`:""}</p></details>
   </div>`;
 }
 function aiHelp(){
@@ -260,7 +260,8 @@ async function refreshLeft(){
 }
 async function checkPrices(id){
   const t=S.trips.find(x=>x.id===id); if(!t||UI.fareRun) return;
-  const cands=candidateDates(t); const p=prefs(t); const total=cands.length*searchesPer(t);
+  const cands=candidateDates(t); const p=prefs(t); const peN=p.comparePremium?Math.min(cands.length,PREMIUM_TOP+1):0;
+  const total=cands.length*searchesPer(t)+peN;
   try{const a=await api("GET");fares.left=a.searchesLeft;}catch(e){toast(e.message);return;}
   if(fares.left!=null&&fares.left<total){toast(fares.left===1?"Only 1 search left this month":`Only ${fares.left} searches left this month`);bus.render();return;}
   UI.fareRun={id,done:0,total}; bus.render();
@@ -280,6 +281,18 @@ async function checkPrices(id){
         results.push(row);
       }
     }catch(e){err=e;break;}
+  }
+  // Premium economy for the best economy dates plus the trip's own dates (same stops, bag and layover rules).
+  if(peN&&!err&&results.length){
+    const own=searchDepart(t);
+    const pick=new Set([own,...scoreOptions(t,results).slice(0,PREMIUM_TOP).map(r=>r.depart)]);
+    const rows=results.filter(r=>pick.has(r.depart)).slice(0,PREMIUM_TOP+1);
+    UI.fareRun.total=UI.fareRun.done+rows.length; bus.render();
+    for(const row of rows){
+      try{const pe=await step({depart:row.depart,return:row.return,stops:p.stops==="direct"?"direct":"any",travelClass:2});
+        row.pe=pe.price!=null?{price:pe.price,eff:pe.eff??pe.price,bag:pe.bag||"unknown",bagFee:pe.bagFee||0,airline:pe.airline,stops:pe.stops,via:pe.via||[],url:pe.url}:{price:null};}
+      catch(e){err=e;break;}
+    }
   }
   const prev=S.fares[id]; const ownRow=results.find(r=>r.depart===searchDepart(t));
   const track=(prev&&prev.key===fareKey(t)&&Array.isArray(prev.track)?prev.track:[]).concat(ownRow&&ownRow.price!=null?[{d:todayStr(),p:effP(ownRow)}]:[]).slice(-30);
@@ -357,6 +370,8 @@ function renderEditor(){
       <div class="grid2"><label class="check"><input type="checkbox" data-f="flights.checkedBag"${prefs(t).checkedBag?" checked":""}><span class="small"><b>Checked bag</b></span></label>
         <label class="check"><input type="checkbox" data-f="flights.carryOn"${prefs(t).carryOn?" checked":""}><span class="small"><b>Carry-on bag</b></span></label></div>
       <p class="small muted" style="margin:0">Carry-on fees are included in the prices. Google Flights can't filter checked bags, so fares marked "checked baggage for a fee" get ~€${longHaul(t)?BAG_FEE.long:BAG_FEE.short} added for the return trip before comparing. A Light fare only wins if it is still cheaper with the bag.</p>
+      <div class="grid2"><label class="check"><input type="checkbox" data-f="flights.comparePremium"${prefs(t).comparePremium?" checked":""}><span class="small"><b>Compare premium economy</b></span></label>
+        <label><span class="label">Prefer premium if at most € more</span><input class="field num" type="number" min="0" max="2000" step="10" inputmode="numeric" data-f="flights.premiumBonus" value="${esc(prefs(t).premiumBonus)}"></label></div>
       <label class="check"><input type="checkbox" data-f="flights.weekendSaver"${prefs(t).weekendSaver?" checked":""}><span class="small"><b>Weekend-saver</b><br><span class="muted">Fly out Friday after 14:00, land back in Munich Monday by 09:00. Friday and Monday stay workdays, so they cost no leave.</span><br><span style="color:var(--warn)">Strict filter: flights outside these times are hidden, including cheaper connections that land later (for example via Helsinki). Compare with it off before booking.</span></span></label>
       <p class="small muted" style="margin:0">Searches departures in this window and suggests cheaper dates. ${prefs(t).stops==="both"?"Compare uses up to 2 searches per date. ":""}Avoiding layovers skips connections in the Gulf, Iran, Iraq, the Levant and Egypt; a flight can still pass over the region.</p>
     </div>
@@ -372,7 +387,7 @@ function setField(t,path,value){
   for(let i=0;i<k.length-1;i++){o[k[i]]=o[k[i]]??{};o=o[k[i]];}
   const last=k[k.length-1];
   if(path.startsWith("airports.")) o[last]=codes(value);
-  else if(path==="flex.nights") o[last]=value===""?"":Number(value);
+  else if(path==="flex.nights"||path==="flights.premiumBonus") o[last]=value===""?0:Number(value);
   else o[last]=value;
 }
 function onTripChange(t,path,prevKind){

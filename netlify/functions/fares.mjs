@@ -78,10 +78,11 @@ function cheapest(data,{maxStops=Infinity,exclude=[],checkedBag=false,bagFee=0}=
     ...bi,bagFee:checkedBag&&bi.bag==="fee"?bagFee:0,eff:eff(f)};
 }
 const TIMES=/^\d{1,2},\d{1,2}(,\d{1,2},\d{1,2})?$/;
-export async function searchFare({from,to,depart,ret,adults,stops="any",excludeConns=[],outboundTimes,returnTimes,carryOn=false,checkedBag=false,bagFee=0},key,fetchImpl=fetch){
+export async function searchFare({from,to,depart,ret,adults,stops="any",excludeConns=[],outboundTimes,returnTimes,carryOn=false,checkedBag=false,bagFee=0,travelClass=1},key,fetchImpl=fetch){
   const p={engine:"google_flights",departure_id:from.join(","),arrival_id:to.join(","),outbound_date:depart,return_date:ret,
     type:"1",currency:"EUR",gl:"de",hl:"en",adults:String(adults||1),stops:STOPS[stops]||"0"};
   if(carryOn) p.bags="1"; // carry-on fees are then included in the prices
+  if(travelClass===2) p.travel_class="2"; // premium economy
   if(excludeConns.length&&stops!=="direct") p.exclude_conns=excludeConns.join(",");
   if(outboundTimes&&TIMES.test(outboundTimes)) p.outbound_times=outboundTimes;
   if(returnTimes&&TIMES.test(returnTimes)) p.return_times=returnTimes;
@@ -116,7 +117,7 @@ export default async function handler(req,_ctx,fetchImpl=fetch){
   const adults=Math.min(4,Math.max(1,Number(b.adults)||1));
   const stops=STOPS[b.stops]?b.stops:"any";
   const excludeConns=[...new Set((b.excludeConns||[]).filter(x=>CODE.test(x)))].slice(0,40);
-  try{return json(200,await searchFare({from,to,depart:b.depart,ret:b.return,adults,stops,excludeConns,outboundTimes:b.outboundTimes,returnTimes:b.returnTimes,carryOn:!!b.carryOn,checkedBag:!!b.checkedBag,bagFee:b.bagFee},key,fetchImpl));}
+  try{return json(200,await searchFare({from,to,depart:b.depart,ret:b.return,adults,stops,excludeConns,outboundTimes:b.outboundTimes,returnTimes:b.returnTimes,carryOn:!!b.carryOn,checkedBag:!!b.checkedBag,bagFee:b.bagFee,travelClass:Number(b.travelClass)===2?2:1},key,fetchImpl));}
   catch(e){return json(502,{error:String(e.message||e).slice(0,200)});}
 }
 

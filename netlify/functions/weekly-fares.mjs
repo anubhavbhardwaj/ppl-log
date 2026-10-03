@@ -41,6 +41,10 @@ export async function runWeekly({fetchImpl=fetch,now=today()}={}){
       }
       if(p.stops==="direct"){used++;left--;}
     }catch(e){log.skipped.push(t.title+" ("+String(e.message).slice(0,60)+")");continue;}
+    if(p.comparePremium&&used<MAX_SEARCHES&&left-1>=MIN_LEFT){
+      try{const pe=await searchFare({...dates,...searchParams(t,p.stops==="direct"?"direct":"any"),travelClass:2},key,fetchImpl);used++;left--;
+        res.pe=pe.price!=null?{price:pe.price,eff:pe.eff??pe.price,bag:pe.bag||"unknown",bagFee:pe.bagFee||0,airline:pe.airline,stops:pe.stops,via:pe.via||[],url:pe.url}:{price:null};}catch(e){}
+    }
     const newRow={depart:cand.depart,return:cand.return,...res};
     const results=sameKey?(fares.results||[]).filter(r=>r.depart!==own).concat(newRow):[newRow];
     const track=(sameKey&&Array.isArray(fares.track)?fares.track:[]).concat(res.price!=null?[{d:now,p:res.eff??res.price}]:[]).slice(-30);

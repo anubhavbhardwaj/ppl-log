@@ -150,9 +150,12 @@ export const WS_TIMES={outbound:"14,23",ret:"0,23,0,8"};
 // carry-on fees (low-cost airlines) are included in prices.
 export const longHaul=t=>!(t.kind==="rome"||t.kind==="europe");
 export const BAG_FEE={long:140,short:80}; // estimated checked-bag cost for a return trip, added to fares sold without one
-export const flightPrefs=t=>({stops:"any",avoidME:true,weekendSaver:false,checkedBag:longHaul(t),carryOn:true,...(t.flights||{})});
+// Premium economy: compared on long-haul by default, and preferred when it costs at most premiumBonus (EUR) more
+// than economy, both including bags.
+export const flightPrefs=t=>({stops:"any",avoidME:true,weekendSaver:false,checkedBag:longHaul(t),carryOn:true,comparePremium:longHaul(t),premiumBonus:100,...(t.flights||{})});
+export const PREMIUM_TOP=3; // premium economy is searched for the best 3 economy dates plus the trip's own dates
 export const fareKey=t=>{const p=flightPrefs(t);const n=t.depart&&t.return?searchNights(t):"";
-  return `${(t.airports?.from||[]).join(",")}>${(t.airports?.to||[]).join(",")}|${n}|${p.stops}|${p.avoidME?1:0}${p.weekendSaver?"|ws":""}|bag${p.checkedBag?1:0}${p.carryOn?1:0}`;};
+  return `${(t.airports?.from||[]).join(",")}>${(t.airports?.to||[]).join(",")}|${n}|${p.stops}|${p.avoidME?1:0}${p.weekendSaver?"|ws":""}|bag${p.checkedBag?1:0}${p.carryOn?1:0}${p.comparePremium?"|pe":""}`;};
 // Search parameters for /api/fares, minus the dates.
 export function searchParams(t,stops){
   const p=flightPrefs(t); const out={from:t.airports.from,to:t.airports.to,stops};
@@ -231,17 +234,22 @@ export function unchargedWorkdays(t){
 
 /* ---------- Scorer ----------
    Ranks searched options by total cost: fare (including the estimated bag fee when a checked bag is needed and
-   the fare has none) + leave it uses + stops. A vacation day is valued at €120,
+   the fare has none; premium economy minus the "prefer premium" allowance) + leave it uses + stops. A vacation day is valued at €120,
    a work-from-India day at €40 (both budgets are limited), each stop at €35. Lowest score wins. */
 export const SCORE={vacation:120,yearEnd:120,wfi:40,stop:35};
 export function scoreOptions(t,rows){
   const base=tripCounts(t,null);
-  return rows.filter(r=>r.price!=null).map(r=>{
-    const fare=r.eff??r.price;
+  const p=flightPrefs(t); const bonus=Number(p.premiumBonus)||0;
+  return rows.filter(r=>r.price!=null||(r.pe&&r.pe.price!=null)).map(r=>{
+    const eco=r.price!=null?(r.eff??r.price):Infinity;
+    const pe=r.pe&&r.pe.price!=null?(r.pe.eff??r.pe.price):Infinity;
+    // Premium wins when it is within the bonus of economy; it is ranked at its price minus the bonus.
+    const cabin=p.comparePremium&&pe-bonus<=eco?"premium":"economy";
+    const fare=cabin==="premium"?pe-bonus:eco;
     const m=moveTrip(t,r.depart,r.return); const c=tripCounts(m,null);
     const leave={vacation:c.vacation-base.vacation,yearEnd:c.yearEnd-base.yearEnd,wfi:c.wfi-base.wfi};
     const score=fare+leave.vacation*SCORE.vacation+leave.yearEnd*SCORE.yearEnd+leave.wfi*SCORE.wfi+(r.stops||0)*SCORE.stop;
-    return {...r,leave,score:Math.round(score)};
+    return {...r,leave,cabin,cabinPrice:cabin==="premium"?pe:eco,score:Math.round(score)};
   }).sort((a,b)=>a.score-b.score);
 }
 
