@@ -146,14 +146,19 @@ export const ME_HUBS=["DXB","DWC","AUH","SHJ","DOH","BAH","KWI","MCT","SLL","RUH
 export const WS_TIMES={outbound:"14,23",ret:"0,23,0,8"};
 // Weekend-saver is a strict time filter (it hides connections that land later, e.g. via Helsinki), so it is off
 // unless switched on for a trip.
-export const flightPrefs=t=>({stops:"any",avoidME:true,weekendSaver:false,...(t.flights||{})});
+// Bags: long-haul trips need a checked bag by default; in Europe it is optional. Carry-on is always assumed, so
+// carry-on fees (low-cost airlines) are included in prices.
+export const longHaul=t=>!(t.kind==="rome"||t.kind==="europe");
+export const BAG_FEE={long:140,short:80}; // estimated checked-bag cost for a return trip, added to fares sold without one
+export const flightPrefs=t=>({stops:"any",avoidME:true,weekendSaver:false,checkedBag:longHaul(t),carryOn:true,...(t.flights||{})});
 export const fareKey=t=>{const p=flightPrefs(t);const n=t.depart&&t.return?searchNights(t):"";
-  return `${(t.airports?.from||[]).join(",")}>${(t.airports?.to||[]).join(",")}|${n}|${p.stops}|${p.avoidME?1:0}${p.weekendSaver?"|ws":""}`;};
+  return `${(t.airports?.from||[]).join(",")}>${(t.airports?.to||[]).join(",")}|${n}|${p.stops}|${p.avoidME?1:0}${p.weekendSaver?"|ws":""}|bag${p.checkedBag?1:0}${p.carryOn?1:0}`;};
 // Search parameters for /api/fares, minus the dates.
 export function searchParams(t,stops){
   const p=flightPrefs(t); const out={from:t.airports.from,to:t.airports.to,stops};
   if(stops!=="direct"&&p.avoidME) out.excludeConns=ME_HUBS;
   if(p.weekendSaver){out.outboundTimes=WS_TIMES.outbound;out.returnTimes=WS_TIMES.ret;}
+  out.carryOn=!!p.carryOn; out.checkedBag=!!p.checkedBag; out.bagFee=longHaul(t)?BAG_FEE.long:BAG_FEE.short;
   return out;
 }
 const dow=d=>parseYmd(d).getDay();
@@ -225,15 +230,17 @@ export function unchargedWorkdays(t){
 }
 
 /* ---------- Scorer ----------
-   Ranks searched options by total cost: fare + leave it uses + stops. A vacation day is valued at €120,
+   Ranks searched options by total cost: fare (including the estimated bag fee when a checked bag is needed and
+   the fare has none) + leave it uses + stops. A vacation day is valued at €120,
    a work-from-India day at €40 (both budgets are limited), each stop at €35. Lowest score wins. */
 export const SCORE={vacation:120,yearEnd:120,wfi:40,stop:35};
 export function scoreOptions(t,rows){
   const base=tripCounts(t,null);
   return rows.filter(r=>r.price!=null).map(r=>{
+    const fare=r.eff??r.price;
     const m=moveTrip(t,r.depart,r.return); const c=tripCounts(m,null);
     const leave={vacation:c.vacation-base.vacation,yearEnd:c.yearEnd-base.yearEnd,wfi:c.wfi-base.wfi};
-    const score=r.price+leave.vacation*SCORE.vacation+leave.yearEnd*SCORE.yearEnd+leave.wfi*SCORE.wfi+(r.stops||0)*SCORE.stop;
+    const score=fare+leave.vacation*SCORE.vacation+leave.yearEnd*SCORE.yearEnd+leave.wfi*SCORE.wfi+(r.stops||0)*SCORE.stop;
     return {...r,leave,score:Math.round(score)};
   }).sort((a,b)=>a.score-b.score);
 }
