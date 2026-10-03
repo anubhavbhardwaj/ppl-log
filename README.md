@@ -56,5 +56,5 @@ All data lives under `users/{uid}/`:
 - `fares/{tripId}`: `{ checkedAt, key, results: [{ depart, return, price, airline, stops, fromAirport, toAirport, level, url }] }`.
 - `leave/{year}`: `{ vacation, yearEnd, wfi }` budgets. Defaults: 30 vacation (6 of them held for year-end) and 15 work from India.
 
-On first sign-in the app records Pull #1 Week 1 as done on 2 Oct 2026 and sets Legs #1 Week 1 as next.
+On first sign-in the app records Push #1 Week 1 as done on 2 Oct 2026 and sets Pull #1 Week 1 as next.
 The Travel tab offers to load the 2027 plan when that year has no trips.

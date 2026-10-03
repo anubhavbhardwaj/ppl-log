@@ -10,9 +10,9 @@ import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,do
 import {firebaseConfig} from "../firebase-config.js";
 import {toast} from "./util.js";
 
-export const DEFAULT_NEXT=2;
-// Program start: Pull #1 Week 1 was done on 2 Oct 2026, so the first session to log is Legs #1 Week 1.
-const START={doneSeq:1,doneDate:"2026-10-02"};
+export const DEFAULT_NEXT=1;
+// Program start: Push #1 Week 1 was done on Fri 2 Oct 2026, so the first session to log is Pull #1 Week 1.
+const START={doneSeq:0,doneDate:"2026-10-02"};
 
 export const S={state:{next:DEFAULT_NEXT},logs:[],trips:[],leave:{},fares:{},mode:"loading",user:null};
 
@@ -33,7 +33,7 @@ export function initStore(onChange){
       if(!st.exists()){
         const b=writeBatch(fdb);
         b.set(uref("meta","state"),{next:START.doneSeq+1,createdAt:new Date().toISOString()});
-        b.set(doc(ucol("logs"),"seed-pull1-w1"),{type:"gym",seq:START.doneSeq,week:1,day:"pull1",date:START.doneDate,ts:START.doneDate+"T06:00:00.000Z",untracked:true,exercises:[],note:""});
+        b.set(doc(ucol("logs"),"seed-push1-w1"),{type:"gym",seq:START.doneSeq,week:1,day:"push1",date:START.doneDate,ts:START.doneDate+"T06:00:00.000Z",untracked:true,exercises:[],note:""});
         await b.commit();
       }
     }catch(e){console.error(e)}
@@ -53,6 +53,7 @@ export const logout=()=>signOut(auth);
 export async function saveState(st){S.state=st;await setDoc(uref("meta","state"),st);}
 export async function addLog(log){log.ts=new Date().toISOString();await addDoc(ucol("logs"),log);}
 export async function removeLog(id){await deleteDoc(uref("logs",id));}
+export async function setLog(id,data){const {id:_,...d}=data;await setDoc(uref("logs",id),JSON.parse(JSON.stringify(d)));}
 
 const newId=()=>"t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 export async function saveTrip(trip){

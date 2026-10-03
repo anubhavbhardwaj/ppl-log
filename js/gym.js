@@ -1,6 +1,6 @@
 /* Gym module: Jeff Nippard Ultimate PPL Phase 1 program, office-day plans, workout logging. */
 import {$,esc,pad,ymd,todayStr,WD,ls,toast,guard,UI,bus,parseYmd} from "./util.js";
-import {S,DEFAULT_NEXT,saveState,addLog,removeLog} from "./store.js";
+import {S,DEFAULT_NEXT,saveState,addLog,removeLog,setLog} from "./store.js";
 
 /* ---------- Program: Jeff Nippard Ultimate PPL, Phase 1 (weeks 1-6) ---------- */
 export const DAYS=[
@@ -276,14 +276,17 @@ export function bindGym(app){
     await guard(addLog({type:"home",date:todayStr(),title:OFF[k].title,key:k,note}));toast("Logged")});
 }
 
-/* One-time fix for the first week: Pull #1 was done on 2 Oct and Push #1 comes next (3 Oct), then Legs #1.
-   Points the program at Push #1 W1; logged Pull #1 is skipped automatically, so Legs #1 follows. */
+/* One-time fix for the first week: Push #1 was done on Fri 2 Oct (not Pull #1), Pull #1 is on Sat 3 Oct, then Legs #1.
+   Rewrites the seeded start entry as Push #1 and points the program at Pull #1. Runs only while the seed is the only gym entry. */
 let migrating=false;
 function migrateOrder(){
-  if(migrating||S.state.order1||S.mode!=="db") return;
-  const done=doneSeqs();
-  if(done.has(0)||!done.has(1)||[...done].some(x=>x>1)||(S.state.next??DEFAULT_NEXT)!==2) return;
-  migrating=true; saveState({...S.state,next:0,order1:true}).finally(()=>{migrating=false;bus.render();});
+  if(migrating||S.state.order2||S.mode!=="db") return;
+  const gyms=S.logs.filter(l=>l.type==="gym");
+  const seed=gyms.find(l=>l.id==="seed-pull1-w1"&&l.untracked);
+  if(!seed||gyms.length!==1) return;
+  migrating=true;
+  Promise.all([setLog(seed.id,{...seed,id:undefined,day:"push1",seq:0}),saveState({...S.state,next:1,order2:true})])
+    .catch(e=>console.error(e)).finally(()=>{migrating=false;bus.render();});
 }
 
 /* ---------- Workout ---------- */
