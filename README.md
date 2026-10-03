@@ -9,7 +9,8 @@ Static site: plain HTML and ES modules, Firebase Auth (email + password) and Fir
 
 - **Today**: current or next trip, this week's training, today's gym session or office-day plan.
   On trip days the PPL sequence pauses and a travel session is suggested.
-- **Gym**: Phase 1 plan grid, session previews, history.
+- **Gym**: plan grid for all three phases, session previews, history with calorie estimates
+  (MET x body weight x session time; MET from kg lifted per minute, 3.5 to 6).
 - **Travel**: leave balances per year, trips with leave blocks, year calendar, Bavarian (Munich)
   public holidays, long weekends and bridge days, and flight prices per trip.
 

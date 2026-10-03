@@ -99,6 +99,40 @@ function lastFor(name){
 const logsOn=date=>S.logs.filter(l=>l.date===date);
 export function nextGymDayName(){const wd=new Date().getDay();for(let i=1;i<=7;i++){const w=(wd+i)%7;if(isGymDay(w))return i===1?"tomorrow":WD[w];}return "";}
 
+/* ---------- Calorie estimate ----------
+   kcal = MET x body weight (kg) x hours (the standard method for resistance training).
+   MET comes from training density, kg lifted per minute: ~3.5 for light work up to 6 for heavy, dense sessions.
+   Duration is Start to Finish; if that looks wrong (under 15 or over 150 min) it is rebuilt from the logged
+   sets, the sheet's rest times and warm-up sets. Bodyweight moves (no kg logged) count 65% of body weight. */
+const restMins=r=>{const m=String(r).match(/(\d+)(?:\s*-\s*(\d+))?/);if(!m)return 0;const mid=(Number(m[1])+Number(m[2]||m[1]))/2;return /sec/i.test(r)?mid/60:mid;};
+export function sessionCalories(log,bw){
+  if(!bw||log.type!=="gym"||!(log.exercises||[]).length) return null;
+  const plan=exercisesFor(log.seq);
+  let vol=0,sets=0,planned=0;
+  log.exercises.forEach((e,i)=>{
+    const done=(e.sets||[]).filter(x=>Number(x.reps)>0); if(!done.length) return;
+    sets+=done.length;
+    vol+=done.reduce((a,x)=>a+((Number(x.kg)||bw*0.65)*Number(x.reps)),0);
+    const pe=plan[i]; planned+=done.length*(0.75+(pe?restMins(pe.rest):2))+(pe?(parseInt(pe.wu)||0)*1.5:0);
+  });
+  if(!sets) return null;
+  let mins=planned, timed=false;
+  if(log.started&&log.ts){const el=(new Date(log.ts)-new Date(log.started))/6e4;if(el>=15&&el<=150){mins=el;timed=true;}}
+  const met=Math.max(3.5,Math.min(6,3.5+(vol/mins)/100));
+  const kcal=met*bw*mins/60, r5=x=>Math.round(x/5)*5;
+  return {kcal:r5(kcal),lo:r5(kcal*0.8),hi:r5(kcal*1.2),mins:Math.round(mins),vol:Math.round(vol),sets,met:Math.round(met*10)/10,timed};
+}
+const bodyweight=()=>Number(S.state.bodyweight)||0;
+function kcalLine(log,showVol=true){
+  const c=sessionCalories(log,bodyweight());
+  if(!c) return "";
+  return `<p class="small" style="margin:6px 0 0"><b class="num">≈ ${c.kcal} kcal</b> <span class="muted num">(${c.lo} to ${c.hi}) · ${c.mins} min${c.timed?"":" est."}${showVol?` · ${c.vol.toLocaleString()} kg lifted`:""}</span></p>`;
+}
+function bwForm(compact){
+  return `<div class="${compact?"":"card"}" style="${compact?"margin-top:8px":""}"><label class="label" for="bw">Body weight for calorie estimates</label>
+    <div class="row" style="margin-top:4px"><input id="bw" class="field num" style="max-width:110px;margin:0" type="number" inputmode="decimal" min="30" max="250" step="0.1" placeholder="kg" value="${bodyweight()||""}"><span class="small muted">kg</span><button class="btn sm" data-savebw>Save</button></div></div>`;
+}
+
 /* ---------- Today ---------- */
 // tripOn(date) -> trip or null. On trip days the PPL sequence pauses and a travel session is suggested.
 export function weekStrip(tripOn){
@@ -132,7 +166,9 @@ export function gymToday(trip,tripOn){
       <button class="btn sm" data-start="${next}">Train today</button></div></div>`;
   if(gymDone){
     const g=seqInfo(gymDone.seq);
-    return `<div class="card hero ${g.day.kind}"><div class="label">Done today</div><h2>${g.day.name} · ${wk(g)}</h2><p class="muted small">Nice work. Next gym day: ${ngName}.</p></div>`+sessionCard("Up next · "+ngName,`<button class="btn ghost sm" data-preview="${next}">Preview exercises</button>`)+comingUp(tripOn);
+    return `<div class="card hero ${g.day.kind}"><div class="label">Done today</div><h2>${g.day.name} · ${wk(g)}</h2>${bodyweight()?kcalLine(gymDone):`<p class="small muted" style="margin:6px 0 0">Add your body weight to see calories burned.</p>${bwForm(true)}`}
+      ${bodyweight()&&sessionCalories(gymDone,bodyweight())?`<details style="margin-top:6px"><summary>How this is estimated</summary><p class="small muted" style="margin:6px 0 0">Body weight × session time × intensity (MET ${sessionCalories(gymDone,bodyweight()).met}). Intensity rises with the kg you lift per minute, from about 3.5 for light work to 6 for heavy, dense sessions. Treat it as a rough range, not an exact number.</p></details>`:""}
+      <p class="muted small" style="margin:6px 0 0">Nice work. Next gym day: ${ngName}.</p></div>`+sessionCard("Up next · "+ngName,`<button class="btn ghost sm" data-preview="${next}">Preview exercises</button>`)+comingUp(tripOn);
   }
   if(skipped) return `<div class="card hero"><div class="label">Skipped today</div><h2>Rest day</h2><p class="muted small">${n.day.name} · ${wk(n)} moves to ${ngName}, and the rest of the plan moves along with it.</p>
     <div class="row" style="margin-top:8px"><button class="btn sm" data-unskip="${skipped.id}">Undo skip</button><button class="btn sm ghost" data-start="${next}">Train anyway</button></div></div>`+comingUp(tripOn);
@@ -198,6 +234,9 @@ function renderPreview(s){
 }
 const altLinks=e=>e.opts.length>1?`<p class="small" style="margin:8px 0 0"><span class="muted">Alternatives:</span> ${e.opts.slice(1).map(o=>`${esc(o.n)} <a href="${esc(videoFor(o))}" target="_blank" rel="noopener">Video</a>`).join(" · ")}</p>`:"";
 function renderHistory(){
+  return renderHistoryList()+bwForm(false);
+}
+function renderHistoryList(){
   if(!S.logs.length) return `<div class="card"><h3>Nothing logged yet</h3><p class="muted small">Finished workouts and office-day sessions appear here, newest first.</p></div>`;
   return S.logs.map(l=>{
     const dl=parseYmd(l.date).toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"});
@@ -206,7 +245,7 @@ function renderHistory(){
     const n=seqInfo(l.seq); const open=UI.openLog===l.id;
     const vol=(l.exercises||[]).reduce((a,e)=>a+(e.sets||[]).reduce((b,s)=>b+(Number(s.kg)||0)*(Number(s.reps)||0),0),0);
     return `<div class="card"><div class="spread"><span class="tag"><span class="plate ${n.day.kind}"></span>${n.day.name} · ${wk(n)}</span><span class="small muted">${dl}</span></div>
-      <p class="small muted" style="margin:4px 0 0">${l.untracked?"Done before the app, no sets recorded.":`${(l.exercises||[]).length} exercises${vol?` · ${Math.round(vol).toLocaleString()} kg total volume`:""}`}</p>
+      <p class="small muted" style="margin:4px 0 0">${l.untracked?"Done before the app, no sets recorded.":`${(l.exercises||[]).length} exercises${vol?` · ${Math.round(vol).toLocaleString()} kg total volume`:""}`}</p>${l.untracked?"":kcalLine(l,false)}
       ${(l.exercises||[]).length?`<button class="linkbtn small" data-openlog="${l.id}">${open?"Hide sets":"Show sets"}</button>`:""}
       ${open?`<ul class="list small" style="margin-top:8px">${l.exercises.map(e=>`<li><div><b>${esc(e.used||e.n)}</b></div><div class="num muted" style="text-align:right">${(e.sets||[]).filter(s=>s.kg||s.reps).map(s=>`${s.kg||"–"}×${s.reps||"–"}`).join(", ")||"–"}</div></li>`).join("")}</ul>${l.note?`<p class="small muted">${esc(l.note)}</p>`:""}`:""}
       ${delCtl(l)}</div>`;}).join("");
@@ -227,6 +266,9 @@ export function bindGym(app){
   app.querySelectorAll("[data-askdel]").forEach(b=>b.onclick=()=>{UI.confirm="del:"+b.dataset.askdel;render()});
   app.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{UI.confirm=null;await guard(removeLog(b.dataset.del));toast("Entry deleted")});
   app.querySelectorAll("[data-off]").forEach(b=>b.onclick=()=>{const k=b.dataset.off;const card=b.closest(".card");card.outerHTML=renderOff(OFF[k],k,null);bindGym(app)});
+  app.querySelectorAll("[data-savebw]").forEach(b=>b.onclick=async()=>{const v=Math.round(Number(($("#bw")?.value||"").replace(",","."))*10)/10;
+    if(!(v>=30&&v<=250)){toast("Enter your weight in kg");return;}
+    await guard(saveState({...S.state,bodyweight:v}));toast("Body weight saved")});
   app.querySelectorAll("[data-askskip]").forEach(b=>b.onclick=()=>{UI.confirm="skip";render()});
   app.querySelectorAll("[data-skip]").forEach(b=>b.onclick=async()=>{UI.confirm=null;await guard(addLog({type:"skip",date:todayStr(),seq:Number(b.dataset.skip)}));toast("Skipped. The plan moves one gym day.")});
   app.querySelectorAll("[data-unskip]").forEach(b=>b.onclick=async()=>{await guard(removeLog(b.dataset.unskip));toast("Skip undone")});
@@ -310,7 +352,7 @@ export function bindWorkout(app){
   app.querySelectorAll("[data-finish]").forEach(b=>b.onclick=async()=>{
     b.disabled=true;
     const n=seqInfo(w.seq); const ex=exercisesFor(w.seq);
-    const log={type:"gym",seq:w.seq,phase:n.phase,week:n.week,day:n.day.id,date:todayStr(),note:w.note||"",
+    const log={type:"gym",seq:w.seq,phase:n.phase,week:n.week,day:n.day.id,date:todayStr(),note:w.note||"",started:w.started||null,
       exercises:ex.map((e,i)=>({n:e.n,used:(e.opts[w.ex[i].sub]||e.opts[0]).n,sets:w.ex[i].sets.filter(s=>s.kg!==""||s.reps!=="")}))};
     try{
       await guard(addLog(log));
