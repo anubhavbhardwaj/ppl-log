@@ -1,72 +1,23 @@
-/* Gym module: Jeff Nippard Ultimate PPL Phase 1 program, office-day plans, workout logging. */
+/* Gym module: Jeff Nippard Ultimate PPL (6x sheet, phases 1-3), office-day plans, workout logging. */
 import {$,esc,pad,ymd,todayStr,WD,ls,toast,guard,UI,bus,parseYmd} from "./util.js";
 import {S,DEFAULT_NEXT,saveState,addLog,removeLog,setLog} from "./store.js";
+import {PROGRAM} from "./program.js";
 
-/* ---------- Program: Jeff Nippard Ultimate PPL, Phase 1 (weeks 1-6) ---------- */
+/* ---------- Program: Jeff Nippard Ultimate PPL 6x, Phases 1-3 (13 weeks, 78 sessions) ----------
+   Data comes from js/program.js, generated from the spreadsheet with tools/extract_program.py. */
 export const DAYS=[
  {id:"push1",name:"Push #1",kind:"push"},{id:"pull1",name:"Pull #1",kind:"pull"},{id:"legs1",name:"Legs #1",kind:"legs"},
  {id:"push2",name:"Push #2",kind:"push"},{id:"pull2",name:"Pull #2",kind:"pull"},{id:"legs2",name:"Legs #2",kind:"legs"}];
-export const WEEKS=6, TOTAL=WEEKS*DAYS.length;
-// [name, warmups, sets, reps, rpe, rest, sub1, sub2, note, weekRepsOverride, week6 [sets,rpe,reps?]]
-const P={
-push1:[
-["Bench Press","3-4",1,"3-5","8-9","3-4 min","DB Bench Press","Machine Chest Press","Set up a comfortable arch, quick pause on the chest and explode up on each rep.",{3:"2-4",4:"2-4"},[1,"7"]],
-["Larsen Press","0",2,"10","8-9","3-4 min","DB Bench Press (No Leg Drive)","Machine Chest Press (No Leg Drive)","Shoulder blades still retracted and depressed. Slight arch in upper back. Zero leg drive.",null,[2,"7"]],
-["Standing Dumbbell Arnold Press","2",3,"8-10","8-9","2-3 min","Seated DB Shoulder Press","Machine Shoulder Press","Start with elbows in front, palms facing in. Rotate so palms face forward as you press.",null,[2,"7"]],
-["A1. Press-Around","1",2,"12-15","9-10","0 min","DB Flye","Deficit Push Up","Brace with your non-working arm, squeeze your pecs by pressing the cable across your body.",null,[2,"8"]],
-["A2. Pec Static Stretch 30s","0",2,"30s hold","N/A","0 min","","","Hold a pec stretch for 30 seconds at about 7/10 intensity.",null,null],
-["Cross-Body Cable Y-Raise (Side Delt)","1",3,"12-15","9-10","1-2 min","DB Lateral Raise","Machine Lateral Raise","Think about swinging the cable out and up as if drawing a sword from your side.",null,[2,"8"]],
-["Squeeze-Only Triceps Pressdown + Stretch-Only Overhead Triceps Extension","1",3,"8 + 8","9-10","1-2 min","Triceps Pressdown (12-15 reps)","DB Skull Crusher (12-15 reps)","Second half of the ROM for pressdowns (the squeeze), first half of the ROM for overhead extensions (the stretch).",null,[2,"8"]],
-["N1-Style Cross-Body Triceps Extension","0",2,"10-12","10","1-2 min","Single-Arm Tricep Pressdown","Single-Arm Cable Tricep Kickback","Arm more out to the side than a regular pressdown. Feel the stretch as the cable moves across your torso.",null,[2,"8"]]],
-pull1:[
-["Lat Pulldown (Feeder Sets)","0",4,"10","See notes","2-3 min","Machine Pulldown","Pull-Up","4 feeder sets of 10, building weight each set: RPE 4-5, 6-7, 7-8, then set 4 to failure at 10 reps.",null,null],
-["Lat Pulldown (Failure Set)","0",1,"10+5","10","2-3 min","Machine Pulldown","Pull-Up","After failure at ~10 reps, strip 30-50% and do another 5 controlled reps.",null,null],
-["Omni-Grip Machine Chest-Supported Row","2",3,"10-12","8-9","2-3 min","Incline Chest-Supported DB Row","Cable Seated Row","Use 3 different grips for the 3 working sets, wider to closer.",null,[3,"7"]],
-["A1. Bottom-Half DB Lat Pullover","1",2,"10-12","9-10","0 min","Cable Lat Pullover","1-Arm Lat Pull-In","Cut out the top half of the ROM, stay in the stretched part.",null,[2,"8"]],
-["A2. Lat Static Stretch 30s","0",2,"30s hold","N/A","0 min","","","Hold a lat stretch for 30 seconds at about 7/10 intensity.",null,null],
-["Omni-Direction Face Pull","1",3,"12-15","9-10","1-2 min","Reverse Cable Flye","Bent-Over Reverse DB Flye","Set 1 low-to-high, set 2 mid-range, set 3 high-to-low.",null,[3,"8"]],
-["EZ-Bar Curl","1",3,"6-8","9-10","1-2 min","DB Curl","Cable Curl","Focus on contracting your biceps, minimize torso momentum.",null,[2,"8"]],
-["Bottom-Half Preacher Curl","0",2,"10-12","10","1-2 min","Bottom-Half Spider Curl","Bottom-Half Bayesian Curl","Cut out the top half of the ROM, stay in the stretched part.",null,[2,"8"]]],
-legs1:[
-["Squat","3-4",1,"2-4","8-9","3-4 min","Hack Squat","DB Bulgarian Split Squat","Sit back and down, keep your upper back tight to the bar.",{2:"3-5",3:"4-6",4:"3-5",5:"2-4",6:"1-3"},[1,"7"]],
-["Pause Squat (Back off)","0",2,"5","8-9","3-4 min","Pause Hack Squat","Pause DB Bulgarian Split Squat","Drop ~25% from your top set. 2 second pause.",null,[2,"7"]],
-["Barbell RDL","2",3,"8-10","8-9","2-3 min","DB RDL","45° Hyperextension","Neutral lower back, hips back, don't let your spine round.",null,[2,"7"]],
-["Walking Lunge","1",2,"10","8-9","2-3 min","DB Step-Up","Goblet Squat","Medium strides, minimize push-off from the rear leg.",null,[2,"7"]],
-["Seated Leg Curl","1",3,"10-12","9-10","1-2 min","Lying Leg Curl","Nordic Ham Curl","Focus on squeezing your hamstrings to move the weight.",null,[2,"8"]],
-["Leg Press Toe Press","1",4,"10-12","9-10","1-2 min","Seated Calf Raise","Standing Calf Raise","All the way up on your toes, stretch at the bottom, don't bounce.",null,[2,"8"]],
-["Decline Plate-Weighted Crunch","1",3,"10-12","9-10","1-2 min","Cable Crunch","Machine Crunch","Hold a plate or DB to your chest and crunch hard.",null,[2,"8"]]],
-push2:[
-["Close-Grip Barbell Incline Press","2-3",3,"8, 5, 12","8-9","3-4 min","Close-Grip DB Incline Press","Close-Grip Machine Press","~45° incline, grip just outside shoulder width.",null,[2,"7","8, 5"]],
-["Machine Shoulder Press","2",3,"10-12","8-9","2-3 min","Seated DB Shoulder Press","Standing DB Arnold Press","Don't stop between reps, keep smooth tension on the delts.",null,[2,"7"]],
-["Floor Skull Crusher (Heavy)","1",3,"6-8","8-9","1-2 min","DB Floor Skull Crusher","Overhead Cable Triceps Extension","Arc the bar behind your head, dead stop on the floor between reps.",null,[2,"7"]],
-["Bent-Over Cable Pec Flye","1",3,"10-12","9-10","1-2 min","Pec Deck","DB Flye","Squeeze your pecs together at the top, big stretch at the bottom.",null,[2,"8"]],
-["Eccentric-Accentuated + Constant-Tension Cable Lateral Raise","1",3,"5, 15","9-10","1-2 min","DB Lateral Raise","Machine Lateral Raise","First 5 reps with a 5-second lowering, last 15 constant tension.",null,[2,"8"]],
-["Plate Front Raise","1",2,"15-20","9-10","1-2 min","DB Front Raise","Cable Front Raise","Turn one side up like a steering wheel as you lift.",null,[2,"8"]],
-["Diamond Push Up","0",1,"AMRAP","10","0 min","Close-Grip Push Up","Kneeling Modified Push Up","Hands together in a diamond, as many reps as possible with a smooth tempo.",null,null]],
-pull2:[
-["1-Arm Half-Kneeling Lat Pulldown","1",3,"12-15","8-9","1-2 min","1-Arm Lat Pull-In","Cable Lat Pullover","Chest tall, elbow tucked close to your torso, squeeze the lat.",null,[2,"7"]],
-["Pull-Up (1 AMRAP set)","2",1,"AMRAP","10","2-3 min","Lat Pulldown (8-15 rep AMRAP)","Machine Pulldown","1.5x shoulder width grip, pull your chest to the bar.",null,null],
-["Kroc Row","2",3,"10-12","8-9","2-3 min","Single-Arm DB Row","Meadows Row","A DB row with mild cheating and a more upright posture. Go heavy, use straps if grip limits.",null,[2,"7"]],
-["Cable Shrug-In","1",3,"10-12","9-10","1-2 min","DB Shrug","Plate Shrug","Two cable handles low, shrug up and in. Squeeze your upper traps.",null,[2,"8"]],
-["Reverse Pec Deck","1",3,"10-12","9-10","1-2 min","Reverse Cable Flye","Bent-Over Reverse DB Flye","Swing the weight out, not back.",null,[2,"8"]],
-["N1-Style Cross-Body Cable Bicep Curl","1",3,"10-12","9-10","1-2 min","DB Incline Curl","DB Curl","Curl across your body with your arm out to the side at ~60°.",null,[2,"8"]]],
-legs2:[
-["Deadlift","3-4",1,"5","8-9","3-5 min","Trap Bar Deadlift","Barbell Hip Thrust","Brace your lats, chest tall, pull the slack out of the bar before lifting.",{2:"4",3:"3",4:"2",5:"1",6:"4"},[1,"5-6"]],
-["Stiff-Leg Deadlift","0",2,"8","8-9","3-4 min","Barbell RDL","DB RDL","A high-hip conventional deadlift with a slight knee bend.",null,[2,"7"]],
-["Leg Press","2-3",4,"10-12","8-9","2-3 min","Goblet Squat","Walking Lunge","Medium foot width, don't let your lower back round.",null,[2,"7"]],
-["Glute Ham Raise","1",3,"8-10","9-10","1-2 min","Nordic Ham Curl","Lying Leg Curl","Keep your hips straight. Nordics if there's no GHR.",null,[2,"8"]],
-["Slow-Eccentric Leg Extension","1",3,"8-10","9-10","1-2 min","DB Step-Up","Goblet Squat","3-4 second negative.",null,[2,"8"]],
-["Seated Calf Raise","1",4,"15-20","9-10","1-2 min","Standing Calf Raise","Leg Press Toe Press","All the way up on your toes, stretch at the bottom, don't bounce.",null,[2,"8"]],
-["Roman Chair Leg Raise","1",3,"10-20","9-10","1-2 min","Hanging Leg Raise","Reverse Crunch","No swinging. Tuck knees if straight legs are too hard.",null,[2,"8"]]]
-};
-export function exercisesFor(dayId,week){
-  return P[dayId].map(a=>{
-    const e={n:a[0],wu:a[1],s:a[2],r:a[3],rpe:a[4],rest:a[5],s1:a[6],s2:a[7],note:a[8]};
-    if(a[9]&&a[9][week]) e.r=a[9][week];
-    if(week===6&&a[10]){e.s=a[10][0];e.rpe=a[10][1];if(a[10][2])e.r=a[10][2];}
-    return e;});
+const FLAT=[];
+PROGRAM.phases.forEach(p=>p.weeks.forEach(w=>w.days.forEach(d=>FLAT.push({phase:p.n,phaseName:p.name,week:w.n,deload:!!w.note,note:w.note,dayId:d.id,ex:d.ex}))));
+export const TOTAL=FLAT.length;
+export const seqInfo=i=>{const f=FLAT[Math.max(0,Math.min(i,TOTAL-1))];return {seq:i,phase:f.phase,phaseName:f.phaseName,week:f.week,deload:f.deload,note:f.note,day:DAYS.find(d=>d.id===f.dayId)};};
+// Each exercise: main movement plus the sheet's two substitutions, each with its own video.
+export function exercisesFor(seq){
+  return FLAT[seq].ex.map(e=>({n:e.n,v:e.v,wu:e.wu,s:Number(e.s)||1,r:e.r,rpe:e.rpe,rest:e.rest,note:e.note,opts:[{n:e.n,v:e.v},...(e.subs||[])]}));
 }
-export const seqInfo=i=>({week:Math.floor(i/6)+1,day:DAYS[i%6],seq:i});
+const wk=n=>`P${n.phase} W${n.week}`;
+const wkLong=n=>`Phase ${n.phase} · Week ${n.week}${n.deload?" · deload":""}`;
 
 /* ---------- Off-day plans (Tue/Wed/Thu) ---------- */
 export const yt=q=>"https://www.youtube.com/results?search_query="+encodeURIComponent(q);
@@ -114,8 +65,8 @@ export function offPlanFor(wd,nextKind){
 
 /* ---------- Helpers ---------- */
 const cleanName=n=>n.replace(/^A\d\.\s*/,"").replace(/\s*\(.*?\)\s*/g," ").trim();
-const videoFor=n=>yt("Jeff Nippard "+cleanName(n));
-const restSeconds=r=>{const m=String(r).match(/(\d+)/);return m?Number(m[1])*60:0};
+const videoFor=o=>o.v||yt("Jeff Nippard "+cleanName(o.n));
+const restSeconds=r=>{const m=String(r).match(/(\d+)/);return m?Number(m[1])*(/sec/i.test(r)?1:60):0};
 const topOfRange=r=>{const m=String(r).match(/^(\d+)\s*-\s*(\d+)$/);return m?Number(m[2]):(/^\d+$/.test(r)?Number(r):null)};
 /* Sequencing: the next session is the first one at or after the pointer (state.next) that isn't logged yet.
    Logging a session out of order (e.g. Push #1 after Pull #1) is fine: logged sessions are skipped. */
@@ -171,19 +122,19 @@ export function gymToday(trip,tripOn){
   const next=nextSeq(); const wd=new Date().getDay(); const t=todayStr();
   const doneToday=logsOn(t); const gymDone=doneToday.find(l=>l.type==="gym"); const homeDone=doneToday.find(l=>l.type==="home"); const skipped=doneToday.find(l=>l.type==="skip");
   const ng=nextGymDate(tripOn); const ngName=ng?(ng.date===addDay(t,1)?"tomorrow":fmtDay(ng.date)):"your next gym day";
-  if(next>=TOTAL) return `<div class="card hero"><div class="label">Phase 1 complete</div><h2>All 36 sessions done</h2><p class="muted">Phase 2 isn't loaded yet. Share the Phase 2 tab of your sheet and it can be added here.</p></div>`;
+  if(next>=TOTAL) return `<div class="card hero"><div class="label">Program complete</div><h2>All ${TOTAL} sessions done</h2><p class="muted">That's all three phases. The sheet suggests running back through Phase 1 Week 1 next.</p></div>`;
   const n=seqInfo(next);
   const sessionCard=(label,extra)=>`<div class="card hero ${n.day.kind}"><div class="label">${label}</div>
-    <div class="spread" style="margin-top:4px"><h2>${n.day.name}</h2><span class="tag"><span class="plate ${n.day.kind}"></span>Week ${n.week}${n.week===6?" · deload":""}</span></div>
-    <p class="muted small">${exercisesFor(n.day.id,n.week).length} exercises · session ${next+1} of ${TOTAL}</p>${extra}</div>`;
+    <div class="spread" style="margin-top:4px"><h2>${n.day.name}</h2><span class="tag"><span class="plate ${n.day.kind}"></span>${wk(n)}${n.deload?" · deload":""}</span></div>
+    <p class="muted small">${exercisesFor(next).length} exercises · ${esc(n.phaseName)} · session ${next+1} of ${TOTAL}</p>${extra}</div>`;
   const upNext=`<div class="card"><div class="label">Up next at the gym · ${ngName}</div>
-      <div class="spread" style="margin-top:4px"><h3><span class="tag"><span class="plate ${n.day.kind}"></span>${n.day.name} · Week ${n.week}</span></h3>
+      <div class="spread" style="margin-top:4px"><h3><span class="tag"><span class="plate ${n.day.kind}"></span>${n.day.name} · ${wk(n)}</span></h3>
       <button class="btn sm" data-start="${next}">Train today</button></div></div>`;
   if(gymDone){
     const g=seqInfo(gymDone.seq);
-    return `<div class="card hero ${g.day.kind}"><div class="label">Done today</div><h2>${g.day.name} · Week ${g.week}</h2><p class="muted small">Nice work. Next gym day: ${ngName}.</p></div>`+sessionCard("Up next · "+ngName,`<button class="btn ghost sm" data-preview="${next}">Preview exercises</button>`)+comingUp(tripOn);
+    return `<div class="card hero ${g.day.kind}"><div class="label">Done today</div><h2>${g.day.name} · ${wk(g)}</h2><p class="muted small">Nice work. Next gym day: ${ngName}.</p></div>`+sessionCard("Up next · "+ngName,`<button class="btn ghost sm" data-preview="${next}">Preview exercises</button>`)+comingUp(tripOn);
   }
-  if(skipped) return `<div class="card hero"><div class="label">Skipped today</div><h2>Rest day</h2><p class="muted small">${n.day.name} · Week ${n.week} moves to ${ngName}, and the rest of the plan moves along with it.</p>
+  if(skipped) return `<div class="card hero"><div class="label">Skipped today</div><h2>Rest day</h2><p class="muted small">${n.day.name} · ${wk(n)} moves to ${ngName}, and the rest of the plan moves along with it.</p>
     <div class="row" style="margin-top:8px"><button class="btn sm" data-unskip="${skipped.id}">Undo skip</button><button class="btn sm ghost" data-start="${next}">Train anyway</button></div></div>`+comingUp(tripOn);
   if(trip) return renderOff(OFF.travel,"travel",homeDone,"Away · "+esc(trip.title))+upNext;
   if(isGymDay(wd)){
@@ -199,7 +150,7 @@ function comingUp(tripOn){
   const rows=projection(10,tripOn).filter(p=>p.date>todayStr()&&(p.kind==="gym"||p.kind==="trip"||p.kind==="skip")).slice(0,5);
   if(!rows.length) return "";
   return `<div class="card"><div class="label">Coming up</div><ul class="list small" style="margin-top:6px">${rows.map(p=>{
-    if(p.kind==="gym"){const n=seqInfo(p.seq);return `<li><span>${fmtDay(p.date)}</span><span class="tag" style="font-size:14px"><span class="plate ${n.day.kind}"></span>${n.day.name} · W${n.week}</span></li>`;}
+    if(p.kind==="gym"){const n=seqInfo(p.seq);return `<li><span>${fmtDay(p.date)}</span><span class="tag" style="font-size:14px"><span class="plate ${n.day.kind}"></span>${n.day.name} · ${wk(n)}</span></li>`;}
     return `<li><span>${fmtDay(p.date)}</span><span class="muted">${p.kind==="trip"?"Trip":"Skipped"}</span></li>`;}).join("")}</ul></div>`;
 }
 function renderOff(plan,key,done,label){
@@ -218,26 +169,34 @@ export function renderGym(){
   return `<div class="stack"><h1>Gym</h1>${seg}${UI.gymView==="history"?renderHistory():renderPlan()}</div>`;
 }
 function renderPlan(){
-  const next=nextSeq(); const done=doneSeqs();
+  const next=nextSeq(); const done=doneSeqs(); const cur=seqInfo(next);
   let g=`<div class="pgrid"><div></div>${DAYS.map(d=>`<div class="h">${d.name.replace(" #","")}</div>`).join("")}`;
-  for(let w=1;w<=WEEKS;w++){g+=`<div class="h" style="align-self:center;text-align:left">W${w}</div>`;
-    DAYS.forEach((d,i)=>{const s=(w-1)*6+i;g+=`<button class="cell ${done.has(s)?"done":""} ${s===next?"next":""}" data-preview="${s}" aria-label="${d.name} week ${w}"><span class="plate ${d.kind}"></span>${done.has(s)?"✓":s===next?"Next":""}</button>`;});}
+  let seq=0;
+  PROGRAM.phases.forEach(p=>{
+    g+=`<div class="ph">Phase ${p.n} · ${esc(p.name)}</div>`;
+    p.weeks.forEach(w=>{g+=`<div class="h" style="align-self:center;text-align:left">W${w.n}${w.note?"<br><span class='dl'>deload</span>":""}</div>`;
+      DAYS.forEach(d=>{const s=seq++;g+=`<button class="cell ${done.has(s)?"done":""} ${s===next?"next":""}" data-preview="${s}" aria-label="${d.name} phase ${p.n} week ${w.n}"><span class="plate ${d.kind}"></span>${done.has(s)?"✓":s===next?"Next":""}</button>`;});});
+  });
   g+="</div>";
   const pct=Math.round(done.size/TOTAL*100);
-  return `<div class="card"><div class="spread"><div><div class="label">Phase 1 progress</div><h2 class="num">${done.size} / ${TOTAL}</h2></div><div class="num muted">${pct}%</div></div>
-    <p class="small muted" style="margin:6px 0 0">Base hypertrophy, moderate volume and intensity. Week 6 is a semi-deload: lighter, fewer sets, avoid failure. At 4 gym days a week this phase takes about 9 calendar weeks.</p></div>
+  const ph=PROGRAM.phases.find(p=>p.n===cur.phase);
+  return `<div class="card"><div class="spread"><div><div class="label">Program progress</div><h2 class="num">${done.size} / ${TOTAL}</h2></div><div class="num muted">${pct}%</div></div>
+    <p class="small muted" style="margin:6px 0 0">Now in Phase ${ph.n}, ${esc(ph.name)}: ${esc(ph.desc.toLowerCase())}. Phase 1 has 6 weeks (week 6 is a semi-deload), Phase 2 has 4, Phase 3 has 3 (week 3 is a full deload). At 4 gym days a week the whole program takes about 20 calendar weeks.</p></div>
     <div class="card">${g}<p class="small muted" style="margin:10px 0 0">Tap a session to preview it or move your position.</p></div>`;
 }
 function renderPreview(s){
-  const n=seqInfo(s); const ex=exercisesFor(n.day.id,n.week); const next=nextSeq();
+  const n=seqInfo(s); const ex=exercisesFor(s); const next=nextSeq();
   return `<div class="stack"><button class="linkbtn" data-back>← Plan</button>
-    <div class="card hero ${n.day.kind}"><div class="label">Week ${n.week}${n.week===6?" · semi-deload":""}</div><h2>${n.day.name}</h2>
-    <div class="row" style="margin-top:8px">${s===next?`<span class="small muted">This is your next session.</span>`:UI.confirm==="setnext"?`<span class="small">Set ${n.day.name} W${n.week} as next?</span><button class="btn primary sm" data-setnext="${s}">Yes, set it</button><button class="btn sm" data-cancelconfirm>Cancel</button>`:`<button class="btn sm" data-askset>Set as next session</button>`}
+    <div class="card hero ${n.day.kind}"><div class="label">${wkLong(n)}</div><h2>${n.day.name}</h2>
+    ${n.note?`<p class="small" style="margin:4px 0 0;color:var(--warn)">${esc(n.note)}</p>`:""}
+    <div class="row" style="margin-top:8px">${s===next?`<span class="small muted">This is your next session.</span>`:UI.confirm==="setnext"?`<span class="small">Set ${n.day.name} ${wk(n)} as next?</span><button class="btn primary sm" data-setnext="${s}">Yes, set it</button><button class="btn sm" data-cancelconfirm>Cancel</button>`:`<button class="btn sm" data-askset>Set as next session</button>`}
     <button class="btn sm" data-start="${s}">Start this workout</button></div></div>
-    ${ex.map(e=>`<div class="ex"><div class="ex-h"><h3>${esc(e.n)}</h3><a class="small" href="${videoFor(e.n)}" target="_blank" rel="noopener">Video</a></div>
+    ${ex.map(e=>`<div class="ex"><div class="ex-h"><h3>${esc(e.n)}</h3><a class="small" href="${esc(videoFor(e))}" target="_blank" rel="noopener">Video</a></div>
       <div class="spec"><div><b>${esc(e.wu)}</b><span>Warm-up</span></div><div><b>${e.s} × ${esc(e.r)}</b><span>Work</span></div><div><b>${esc(e.rpe)}</b><span>RPE</span></div><div><b>${esc(e.rest.replace(" min","m"))}</b><span>Rest</span></div></div>
+      ${altLinks(e)}
       <p class="small muted" style="margin:8px 0 0">${esc(e.note)}</p></div>`).join("")}</div>`;
 }
+const altLinks=e=>e.opts.length>1?`<p class="small" style="margin:8px 0 0"><span class="muted">Alternatives:</span> ${e.opts.slice(1).map(o=>`${esc(o.n)} <a href="${esc(videoFor(o))}" target="_blank" rel="noopener">Video</a>`).join(" · ")}</p>`:"";
 function renderHistory(){
   if(!S.logs.length) return `<div class="card"><h3>Nothing logged yet</h3><p class="muted small">Finished workouts and office-day sessions appear here, newest first.</p></div>`;
   return S.logs.map(l=>{
@@ -246,7 +205,7 @@ function renderHistory(){
     if(l.type==="home") return `<div class="card"><div class="spread"><span class="tag"><span class="plate home"></span>${esc(l.title)}</span><span class="small muted">${dl}</span></div>${l.note?`<p class="small muted" style="margin:6px 0 0">${esc(l.note)}</p>`:""}${delCtl(l)}</div>`;
     const n=seqInfo(l.seq); const open=UI.openLog===l.id;
     const vol=(l.exercises||[]).reduce((a,e)=>a+(e.sets||[]).reduce((b,s)=>b+(Number(s.kg)||0)*(Number(s.reps)||0),0),0);
-    return `<div class="card"><div class="spread"><span class="tag"><span class="plate ${n.day.kind}"></span>${n.day.name} · W${n.week}</span><span class="small muted">${dl}</span></div>
+    return `<div class="card"><div class="spread"><span class="tag"><span class="plate ${n.day.kind}"></span>${n.day.name} · ${wk(n)}</span><span class="small muted">${dl}</span></div>
       <p class="small muted" style="margin:4px 0 0">${l.untracked?"Done before the app, no sets recorded.":`${(l.exercises||[]).length} exercises${vol?` · ${Math.round(vol).toLocaleString()} kg total volume`:""}`}</p>
       ${(l.exercises||[]).length?`<button class="linkbtn small" data-openlog="${l.id}">${open?"Hide sets":"Show sets"}</button>`:""}
       ${open?`<ul class="list small" style="margin-top:8px">${l.exercises.map(e=>`<li><div><b>${esc(e.used||e.n)}</b></div><div class="num muted" style="text-align:right">${(e.sets||[]).filter(s=>s.kg||s.reps).map(s=>`${s.kg||"–"}×${s.reps||"–"}`).join(", ")||"–"}</div></li>`).join("")}</ul>${l.note?`<p class="small muted">${esc(l.note)}</p>`:""}`:""}
@@ -291,28 +250,31 @@ function migrateOrder(){
 
 /* ---------- Workout ---------- */
 function startWorkout(seq){
-  const n=seqInfo(seq); const ex=exercisesFor(n.day.id,n.week);
+  const ex=exercisesFor(seq);
   let draft=ls.get("ppl_draft");
-  if(!draft||draft.seq!==seq){
-    draft={seq,started:new Date().toISOString(),ex:ex.map(e=>({sub:0,done:false,sets:Array.from({length:e.s},()=>({kg:"",reps:""}))})),note:""};
+  if(!draft||draft.seq!==seq||!Array.isArray(draft.ex)||draft.ex.length!==ex.length){
+    // Start each exercise on the variation you used last time (e.g. DB Bench if the bench was taken).
+    const lastSub=e=>{const l=lastFor(e.n);const k=l?e.opts.findIndex(o=>o.n===l.e.used):-1;return k>0?k:0;};
+    draft={seq,started:new Date().toISOString(),ex:ex.map(e=>({sub:lastSub(e),done:false,sets:Array.from({length:e.s},()=>({kg:"",reps:""}))})),note:""};
   }
   UI.workout=draft; ls.set("ppl_draft",draft); bus.render(); window.scrollTo(0,0);
 }
 export function renderWorkout(){
-  const w=UI.workout; const n=seqInfo(w.seq); const ex=exercisesFor(n.day.id,n.week);
+  const w=UI.workout; const n=seqInfo(w.seq); const ex=exercisesFor(w.seq);
   const doneCount=w.ex.filter(x=>x.done).length;
   return `<div class="stack">
     <div class="spread"><button class="linkbtn" data-exit>← Save and close</button><span class="small muted num">${doneCount}/${ex.length} done</span></div>
-    <div class="card hero ${n.day.kind}"><div class="label">Week ${n.week}${n.week===6?" · semi-deload, avoid failure":""}</div><h2>${n.day.name}</h2>
+    <div class="card hero ${n.day.kind}"><div class="label">${wkLong(n)}${n.deload?", avoid failure":""}</div><h2>${n.day.name}</h2>
       <p class="small muted" style="margin:4px 0 0">Log working sets only. Weights in kg.</p></div>
-    ${ex.map((e,i)=>{const st=w.ex[i]; const subName=st.sub===1?e.s1:st.sub===2?e.s2:e.n; const last=lastFor(e.n);
+    ${ex.map((e,i)=>{const st=w.ex[i]; const cho=e.opts[st.sub]||e.opts[0]; const subName=cho.n; const last=lastFor(e.n);
       const top=topOfRange(e.r); let hint="";
       if(last){const sets=last.e.sets.filter(s=>s.kg||s.reps);hint=`<div class="hint num">Last (${last.date.slice(5)}${last.e.used&&last.e.used!==e.n?", "+esc(last.e.used):""}): ${sets.map(s=>`${s.kg||"–"}×${s.reps||"–"}`).join(", ")}</div>`;
-        if(top&&sets.length&&sets.every(s=>Number(s.reps)>=top)&&n.week!==6) hint+=`<div class="hint up">You hit ${top} reps on every set last time. Try adding 2.5 kg.</div>`;}
+        if(top&&sets.length&&sets.every(s=>Number(s.reps)>=top)&&!n.deload) hint+=`<div class="hint up">You hit ${top} reps on every set last time. Try adding 2.5 kg.</div>`;}
       return `<div class="ex ${st.done?"done":""}" id="ex-${i}">
-        <div class="ex-h"><h3>${esc(subName)}</h3><a class="small" href="${st.sub?yt(subName+" form"):videoFor(e.n)}" target="_blank" rel="noopener">Video</a></div>
+        <div class="ex-h"><h3>${esc(subName)}</h3><a class="small" href="${esc(videoFor(cho))}" target="_blank" rel="noopener">Video</a></div>
+        ${st.sub?`<p class="small muted" style="margin:2px 0 0">Instead of ${esc(e.n)}</p>`:""}
         <div class="spec"><div><b>${esc(e.wu)}</b><span>Warm-up</span></div><div><b>${e.s} × ${esc(e.r)}</b><span>Work</span></div><div><b>${esc(e.rpe)}</b><span>RPE</span></div><div><b>${esc(e.rest.replace(" min","m"))}</b><span>Rest</span></div></div>
-        ${e.s1?`<div class="row" style="margin-top:8px"><label class="small muted" for="sub-${i}">Variation</label><select id="sub-${i}" data-sub="${i}"><option value="0"${st.sub===0?" selected":""}>${esc(e.n)}</option><option value="1"${st.sub===1?" selected":""}>${esc(e.s1)}</option><option value="2"${st.sub===2?" selected":""}>${esc(e.s2)}</option></select></div>`:""}
+        ${e.opts.length>1?`<div class="opts" role="radiogroup" aria-label="Variation for ${esc(e.n)}">${e.opts.map((o,k)=>`<button class="optc ${st.sub===k?"on":""}" role="radio" aria-checked="${st.sub===k}" data-sub="${i}" data-k="${k}">${k===0?"":`<span class="muted">Alt ${k}:</span> `}${esc(o.n)}</button>`).join("")}</div>`:""}
         ${hint?`<div class="stack" style="gap:6px;margin-top:8px">${hint}</div>`:""}
         <div class="sets"><span></span><span class="label" style="text-align:center">kg</span><span class="label" style="text-align:center">reps</span>
           ${st.sets.map((s,j)=>`<span class="sn">Set ${j+1}</span><input id="kg-${i}-${j}" inputmode="decimal" data-kg="${i}-${j}" value="${esc(s.kg)}" aria-label="Set ${j+1} weight"><input id="rp-${i}-${j}" inputmode="numeric" data-rp="${i}-${j}" value="${esc(s.reps)}" aria-label="Set ${j+1} reps">`).join("")}
@@ -321,10 +283,10 @@ export function renderWorkout(){
           <div class="row">${restSeconds(e.rest)?`<button class="btn sm" data-rest="${restSeconds(e.rest)}">Rest ${e.rest.replace("~","")}</button>`:""}<button class="btn sm ghost" data-addset="${i}">+ Set</button></div>
           <button class="btn sm ${st.done?"":"primary"}" data-done="${i}">${st.done?"Undo":"Done"}</button></div>
         <details style="margin-top:8px"><summary>Coaching notes</summary><p class="small muted" style="margin:6px 0 0">${esc(e.note)}</p>
-          ${e.s1?`<p class="small" style="margin:6px 0 0">Substitutions: <a href="${yt(e.s1+" form")}" target="_blank" rel="noopener">${esc(e.s1)}</a> · <a href="${yt(e.s2+" form")}" target="_blank" rel="noopener">${esc(e.s2)}</a></p>`:""}</details>
+          ${e.opts.length>1?`<p class="small" style="margin:6px 0 0">Videos: ${e.opts.map((o,k)=>`<a href="${esc(videoFor(o))}" target="_blank" rel="noopener">${esc(o.n)}</a>`).join(" · ")}</p>`:""}</details>
       </div>`;}).join("")}
     <div class="card"><label class="label" for="wnote">Session note</label><textarea id="wnote" rows="2" placeholder="Energy, gym, anything to remember">${esc(w.note)}</textarea></div>
-    ${UI.confirm==="finish"?`<div class="card"><p style="margin:0 0 8px">Finish and save ${n.day.name} W${n.week}? ${doneCount<ex.length?`${ex.length-doneCount} exercises aren't marked done.`:""}</p><div class="row"><button class="btn primary" data-finish>Save workout</button><button class="btn" data-cancelconfirm>Keep training</button></div></div>`:`<button class="btn primary block" data-askfinish>Finish workout</button>`}
+    ${UI.confirm==="finish"?`<div class="card"><p style="margin:0 0 8px">Finish and save ${n.day.name} ${wk(n)}? ${doneCount<ex.length?`${ex.length-doneCount} exercises aren't marked done.`:""}</p><div class="row"><button class="btn primary" data-finish>Save workout</button><button class="btn" data-cancelconfirm>Keep training</button></div></div>`:`<button class="btn primary block" data-askfinish>Finish workout</button>`}
     ${UI.confirm==="discard"?`<div class="row"><span class="small">Discard this workout?</span><button class="btn sm" data-discard>Discard</button><button class="btn sm" data-cancelconfirm>Keep</button></div>`:`<button class="linkbtn small" style="color:var(--muted)" data-askdiscard>Discard workout</button>`}
   </div>`;
 }
@@ -333,7 +295,8 @@ export function bindWorkout(app){
   const w=UI.workout; const render=()=>bus.render();
   app.querySelectorAll("[data-kg]").forEach(inp=>inp.oninput=()=>{const [i,j]=inp.dataset.kg.split("-").map(Number);w.ex[i].sets[j].kg=inp.value.replace(",",".");saveDraft()});
   app.querySelectorAll("[data-rp]").forEach(inp=>inp.oninput=()=>{const [i,j]=inp.dataset.rp.split("-").map(Number);w.ex[i].sets[j].reps=inp.value;saveDraft()});
-  app.querySelectorAll("[data-sub]").forEach(s=>s.onchange=()=>{w.ex[Number(s.dataset.sub)].sub=Number(s.value);saveDraft();render()});
+  app.querySelectorAll("[data-sub]").forEach(b=>b.onclick=()=>{w.ex[Number(b.dataset.sub)].sub=Number(b.dataset.k);saveDraft();
+    const y=window.scrollY;render();window.scrollTo(0,y)});
   app.querySelectorAll("[data-addset]").forEach(b=>b.onclick=()=>{w.ex[Number(b.dataset.addset)].sets.push({kg:"",reps:""});saveDraft();render()});
   app.querySelectorAll("[data-done]").forEach(b=>b.onclick=()=>{const i=Number(b.dataset.done);w.ex[i].done=!w.ex[i].done;saveDraft();render();
     const nx=document.getElementById("ex-"+(i+1)); if(w.ex[i].done&&nx) nx.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"start"});});
@@ -346,9 +309,9 @@ export function bindWorkout(app){
   app.querySelectorAll("[data-discard]").forEach(b=>b.onclick=()=>{ls.del("ppl_draft");UI.workout=null;UI.confirm=null;render()});
   app.querySelectorAll("[data-finish]").forEach(b=>b.onclick=async()=>{
     b.disabled=true;
-    const n=seqInfo(w.seq); const ex=exercisesFor(n.day.id,n.week);
-    const log={type:"gym",seq:w.seq,week:n.week,day:n.day.id,date:todayStr(),note:w.note||"",
-      exercises:ex.map((e,i)=>({n:e.n,used:w.ex[i].sub===1?e.s1:w.ex[i].sub===2?e.s2:e.n,sets:w.ex[i].sets.filter(s=>s.kg!==""||s.reps!=="")}))};
+    const n=seqInfo(w.seq); const ex=exercisesFor(w.seq);
+    const log={type:"gym",seq:w.seq,phase:n.phase,week:n.week,day:n.day.id,date:todayStr(),note:w.note||"",
+      exercises:ex.map((e,i)=>({n:e.n,used:(e.opts[w.ex[i].sub]||e.opts[0]).n,sets:w.ex[i].sets.filter(s=>s.kg!==""||s.reps!=="")}))};
     try{
       await guard(addLog(log));
       const cur=nextSeq();

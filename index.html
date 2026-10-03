@@ -102,6 +102,12 @@ details summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13p
 .cell{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 2px;text-align:center;font-family:var(--display);font-weight:700;font-size:13px;color:var(--fg)}
 .cell.done{background:var(--surface-2);color:var(--muted)}
 .cell.next{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.pgrid .ph{grid-column:1/-1;font-family:var(--display);font-weight:700;font-size:14px;margin:8px 0 2px;color:var(--fg)}
+.pgrid .dl{font-size:9px;color:var(--warn);text-transform:uppercase}
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.optc{border:1px solid var(--line);background:var(--surface-2);color:var(--fg);border-radius:999px;padding:5px 10px;font-size:12px;font-weight:600;text-align:left}
+.optc.on{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.optc.on .muted{color:inherit;opacity:.8}
 .cell .plate{display:inline-block;width:8px;height:8px;margin-right:3px;vertical-align:middle}
 /* tabbar & timer */
 .tabbar{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(3,1fr);padding-bottom:env(safe-area-inset-bottom,0px);z-index:5}
