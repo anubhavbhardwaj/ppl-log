@@ -32,9 +32,12 @@ export async function askGroq(payload,key,fetchImpl=fetch){
     model:j.model||MODEL(),usage:j.usage?{prompt:j.usage.prompt_tokens||0,completion:j.usage.completion_tokens||0,total:j.usage.total_tokens||0}:null};
 }
 
+// Environment variables visible to this function whose name looks like the Groq key (names only, never values).
+const similarNames=()=>Object.keys(process.env).filter(k=>/groq/i.test(k));
 export default async function handler(req,_ctx,fetchImpl=fetch){
-  const key=process.env.GROQ_API_KEY;
-  if(!key) return json(501,{error:"GROQ_API_KEY isn't set in Netlify environment variables."});
+  const key=(process.env.GROQ_API_KEY||"").trim().replace(/^["']|["']$/g,"");
+  if(req.method==="GET") return json(200,{configured:!!key,model:MODEL(),keyLooksValid:/^gsk_/.test(key),similarNames:similarNames()});
+  if(!key) return json(501,{error:"GROQ_API_KEY isn't available to this function.",similarNames:similarNames()});
   const token=(req.headers.get("authorization")||"").replace(/^Bearer\s+/i,"");
   let user=null; try{user=await verifyToken(token,fetchImpl)}catch(e){return json(502,{error:"Couldn't check sign-in."})}
   if(!user) return json(401,{error:"Sign in again."});
