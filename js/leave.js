@@ -73,6 +73,7 @@ export function problems(trips,leave,year){
   const out=[]; const seen=new Map();
   const yearTrips=trips.filter(t=>tripInYear(t,year));
   yearTrips.forEach(t=>{
+    if(t.status!=="idea"){const u=unchargedWorkdays(t);if(u.length) out.push(`${t.title}: ${u.map(fmt).join(", ")} ${u.length===1?"is a workday":"are workdays"} with no leave booked.`);}
     if(!t.depart||!t.return) out.push(`${t.title}: add travel dates.`);
     else if(t.depart>t.return) out.push(`${t.title}: return is before departure.`);
     (t.blocks||[]).forEach(b=>{
@@ -161,7 +162,7 @@ export const nearestFriday=d=>{const f=(5-dow(d)+7)%7;return addDays(d,f<=3?f:f-
 export const mondayOnOrAfter=d=>addDays(d,(8-dow(d))%7);
 // The departure date the trip's own dates correspond to in a search (Friday when weekend-saver is on).
 export const searchDepart=t=>flightPrefs(t).weekendSaver&&t.depart?nearestFriday(t.depart):t.depart;
-// Length of the searched trip: Friday to Monday with weekend-saver, otherwise the trip's own nights (or flex nights).
+// Length of the searched trip: Friday to Monday with weekend-saver, otherwise exactly the trip's own nights.
 export function searchNights(t){
   const days=(a,b)=>Math.round((parseYmd(b)-parseYmd(a))/864e5);
   if(flightPrefs(t).weekendSaver) return days(nearestFriday(t.depart),mondayOnOrAfter(t.return));
@@ -170,14 +171,16 @@ export function searchNights(t){
 
 /* ---------- Flight date candidates ---------- */
 // Departures inside the trip's flexibility window on the same weekday as the planned departure, keeping the
-// same number of nights. With weekend-saver: Friday departures and Monday returns instead.
+// trip's own length. With weekend-saver: Friday departures and Monday returns instead.
 // Capped to `max` searches, always including the trip's own dates.
 export function candidateDates(t,max=8){
   if(!t.depart||!t.return) return [];
   const f=t.flex||{}; const ws=flightPrefs(t).weekendSaver;
   let from=f.departFrom||addDays(t.depart,-7), to=f.departTo||addDays(t.depart,7);
   const own=searchDepart(t);
-  const len=ws?searchNights(t):(Number(f.nights)||searchNights(t));
+  // Options keep the trip's shape: same departure weekday, same length, so the same return weekday and the same
+  // leave days (a Sat-Mon trip with a Monday vacation day is only compared with other Sat-Mon weekends).
+  const len=searchNights(t);
   if(ws) from=addDays(from,-1);
   const wd=dow(own); let list=[];
   for(const d of eachDay(from,to)) if(dow(d)===wd) list.push(d);
@@ -204,6 +207,21 @@ export function moveTrip(t,depart,ret){
   const blocks=(t.blocks||[]).map(b=>({...b,start:addDays(b.start,wk),end:addDays(b.end,wk)}))
     .map(b=>({...b,start:b.start<lo?lo:b.start,end:b.end>hi?hi:b.end})).filter(b=>b.start<=b.end);
   return {...t,depart,return:ret,blocks};
+}
+
+// Workdays inside the trip that no leave block covers. The departure day is allowed (work, then an evening flight);
+// the return day and everything in between need leave, except weekend-saver's Monday-morning return.
+export function unchargedWorkdays(t){
+  if(!t.depart||!t.return||t.depart>t.return) return [];
+  const covered=new Set(); (t.blocks||[]).forEach(b=>{if(b.start&&b.end) for(const d of eachDay(b.start,b.end)) covered.add(d);});
+  const ws=flightPrefs(t).weekendSaver; const out=[];
+  for(const d of eachDay(t.depart,t.return)){
+    if(!isWorkday(d)||covered.has(d)) continue;
+    if(d===t.depart&&d!==t.return) continue;
+    if(ws&&d===t.return&&dow(d)===1) continue;
+    out.push(d);
+  }
+  return out;
 }
 
 /* ---------- Scorer ----------

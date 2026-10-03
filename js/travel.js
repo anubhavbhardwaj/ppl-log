@@ -2,10 +2,11 @@
    flight prices and details. Calendar, bridges, holidays and budget sit in collapsible sections. */
 import {$,esc,todayStr,addDays,daysBetween,fmtDate,eachDay,parseYmd,ls,toast,guard,UI,bus} from "./util.js";
 import {S,saveTrip,removeTrip,saveLeave,seedTrips,saveFares,idToken,bumpUsage} from "./store.js";
-import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027,candidateDates,shiftTrip,bookingAdvice,bookingWindow,flightPrefs,fareKey,searchParams,searchDepart,moveTrip,scoreOptions,SCORE} from "./leave.js";
+import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027,candidateDates,shiftTrip,bookingAdvice,bookingWindow,unchargedWorkdays,flightPrefs,fareKey,searchParams,searchDepart,moveTrip,scoreOptions,SCORE} from "./leave.js";
 
 const KIND_PLATE={rome:"push",india:"legs",europe:"pull",other:"home"};
 const STATUS={idea:"Idea",planned:"Planned",booked:"Booked"};
+const WDN=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const plural=(n,w)=>`${n} ${w}${n===1?"":"s"}`;
 const short=ds=>fmtDate(ds,{day:"numeric",month:"short"});
 const countText=c=>[c.vacation&&`${c.vacation} vacation`,c.yearEnd&&`${c.yearEnd} year-end`,c.wfi&&`${c.wfi} WFI`].filter(Boolean).join(" · ")||"No leave days";
@@ -89,13 +90,20 @@ function renderTripPage(t){
       <p class="small" style="margin:4px 0 0">${t.depart?fmtDate(t.depart):"?"} to ${t.return?fmtDate(t.return):"?"}${nights!=null?` · ${plural(nights,"night")}`:""}</p>
       <div class="chips">${kindChips(c)||`<span class="chip">No leave days</span>`}</div>
       <div class="row" style="margin-top:10px"><button class="btn sm" data-edittrip="${t.id}">Edit trip</button>${t.status==="planned"?`<button class="btn sm ghost" data-markbooked="${t.id}">Mark as booked</button>`:""}</div></div>
+    ${leaveGuard(t)}
     ${bookingCard(t)}
     ${recommendCard(t)}
     <div class="card"><div class="label">Flights</div>
-      ${(a.from||[]).length?`<p class="small" style="margin:6px 0 8px">${esc((a.from||[]).join(", "))} → ${esc((a.to||[]).join(", ")||"?")}${f.departFrom&&f.departTo?`<br><span class="muted">Searching departures ${short(f.departFrom)} to ${short(f.departTo)}, ${plural(Number(f.nights)||nights||0,"night")}</span>`:""}</p>`:`<p class="small muted">Add airports in Edit trip to check prices.</p>`}
+      ${(a.from||[]).length?`<p class="small" style="margin:6px 0 8px">${esc((a.from||[]).join(", "))} → ${esc((a.to||[]).join(", ")||"?")}${f.departFrom&&f.departTo?`<br><span class="muted">Searching departures ${short(f.departFrom)} to ${short(f.departTo)}, same ${WDN[parseYmd(t.depart).getDay()]} to ${WDN[parseYmd(t.return).getDay()]} shape (${plural(nights||0,"night")})</span>`:""}</p>`:`<p class="small muted">Add airports in Edit trip to check prices.</p>`}
       ${fareSection(t)}</div>
     ${t.note?`<div class="card"><div class="label">Note</div><p class="small" style="margin:6px 0 0">${esc(t.note)}</p></div>`:""}
   </div>`;
+}
+function leaveGuard(t){
+  const days=unchargedWorkdays(t); if(!days.length) return "";
+  return `<div class="card warn"><div class="label">Leave missing</div>
+    <p class="small" style="margin:6px 0 0">${days.map(d=>esc(fmtDate(d))).join(", ")} ${days.length===1?"is a workday":"are workdays"} inside this trip with no leave booked.</p>
+    <div class="row" style="margin-top:8px"><button class="btn sm primary" data-chargevac="${t.id}">Charge as vacation</button><button class="btn sm ghost" data-edittrip="${t.id}">Edit trip</button></div></div>`;
 }
 function bookingCard(t){
   const a=advice(t);
@@ -341,7 +349,6 @@ function renderEditor(){
         <label><span class="label">To airports</span><input class="field" data-f="airports.to" value="${esc((a.to||[]).join(", "))}" placeholder="FCO, CIA"></label></div>
       <div class="grid2"><label><span class="label">Earliest departure</span><input class="field" type="date" data-f="flex.departFrom" value="${esc(f.departFrom)}"></label>
         <label><span class="label">Latest departure</span><input class="field" type="date" data-f="flex.departTo" value="${esc(f.departTo)}"></label></div>
-      <div class="grid2"><label><span class="label">Nights</span><input class="field num" type="number" min="1" inputmode="numeric" data-f="flex.nights" value="${esc(f.nights)}"></label></div>
       <div class="grid2"><label><span class="label">Stops</span><select class="field" data-f="flights.stops">${Object.entries(STOP_LABEL).map(([k,l])=>`<option value="${k}"${prefs(t).stops===k?" selected":""}>${l}</option>`).join("")}</select></label>
         <label class="check" style="align-self:end;padding-bottom:10px"><input type="checkbox" data-f="flights.avoidME"${prefs(t).avoidME?" checked":""}><span class="small"><b>Avoid Middle East layovers</b></span></label></div>
       <label class="check"><input type="checkbox" data-f="flights.weekendSaver"${prefs(t).weekendSaver?" checked":""}><span class="small"><b>Weekend-saver</b><br><span class="muted">Fly out Friday after 14:00, land back in Munich Monday by 09:00. Friday and Monday stay workdays, so they cost no leave.</span><br><span style="color:var(--warn)">Strict filter: flights outside these times are hidden, including cheaper connections that land later (for example via Helsinki). Compare with it off before booking.</span></span></label>
@@ -369,7 +376,6 @@ function onTripChange(t,path,prevKind){
     const f=t.flex=t.flex||{};
     if(!f.departFrom) f.departFrom=addDays(t.depart,-7);
     if(!f.departTo) f.departTo=addDays(t.depart,7);
-    if(!f.nights) f.nights=daysBetween(t.depart,t.return);
   }
   if(/^blocks\.\d+\.start$/.test(path)){const b=t.blocks[Number(path.split(".")[1])]; if(b.start&&(!b.end||b.end<b.start)) b.end=b.start; if(b.start.slice(5,7)!=="01") delete b.carry;}
 }
@@ -381,6 +387,10 @@ export function bindTravel(app){
   app.querySelectorAll("[data-closetrip]").forEach(b=>b.onclick=()=>{UI.openTrip=null;render();window.scrollTo(0,0)});
   app.querySelectorAll("[data-cal]").forEach(d=>d.ontoggle=()=>{if(d.isConnected)UI.calOpen=d.open});
   const setStatus=async(id,status,msg)=>{const t=S.trips.find(x=>x.id===id);if(!t)return;await guard(saveTrip({...t,status}));toast(msg)};
+  app.querySelectorAll("[data-chargevac]").forEach(b=>b.onclick=async()=>{const t=S.trips.find(x=>x.id===b.dataset.chargevac);if(!t)return;
+    const add=[];let cur=null;
+    for(const d of unchargedWorkdays(t)){ if(cur&&addDays(cur.end,1)===d) cur.end=d; else{ if(cur&&daysBetween(cur.end,d)<=3&&[...eachDay(addDays(cur.end,1),addDays(d,-1))].every(x=>!isWorkday(x))) cur.end=d; else{cur={type:"vacation",start:d,end:d};add.push(cur);} } }
+    await guard(saveTrip({...t,blocks:[...(t.blocks||[]),...add]}));toast(add.length===1&&add[0].start===add[0].end?`${fmtDate(add[0].start)} charged as vacation`:"Vacation added")});
   app.querySelectorAll("[data-markbooked]").forEach(b=>b.onclick=()=>setStatus(b.dataset.markbooked,"booked","Marked as booked"));
   app.querySelectorAll("[data-unbook]").forEach(b=>b.onclick=()=>setStatus(b.dataset.unbook,"planned","Back to planned"));
   app.querySelectorAll("[data-year]").forEach(b=>b.onclick=()=>{UI.travelYear=Number(b.dataset.year);ls.set("cad_year",UI.travelYear);render()});
