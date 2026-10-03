@@ -46,7 +46,18 @@ export function histStats(ph){
 }
 // Cheapest itinerary that respects the stop limit and avoids excluded layover airports.
 // Google applies the same filters; this is a second check on what comes back.
-function cheapest(data,{maxStops=Infinity,exclude=[]}={}){
+// Baggage: Google Flights has no checked-bag filter, but results carry notes such as "Checked baggage for a fee"
+// (typical of Light/basic fares). When a checked bag is needed, those fares get an estimated bag cost added
+// (bagFee, return trip) before picking the cheapest, so a Light fare only wins if it is still cheaper with the bag.
+const FEE=/checked bag(?:gage|s)?\s+(?:for a fee|not included)|no (?:free )?checked bag|carry-on (?:bag )?not included/i;
+const INCL=/(?:\d+|one|two) (?:free )?checked bags?|checked bag(?:gage)? included|free checked bag/i;
+export function bagInfo(f){
+  const notes=[...(f.extensions||[]),...(f.flights||[]).flatMap(l=>l.extensions||[])].map(String);
+  if(notes.some(n=>FEE.test(n))) return {bag:"fee",bagNote:notes.find(n=>FEE.test(n))};
+  if(notes.some(n=>INCL.test(n))) return {bag:"included",bagNote:notes.find(n=>INCL.test(n))};
+  return {bag:"unknown",bagNote:null};
+}
+function cheapest(data,{maxStops=Infinity,exclude=[],checkedBag=false,bagFee=0}={}){
   const bad=new Set(exclude);
   const all=[...(data.best_flights||[]),...(data.other_flights||[])].filter(f=>{
     if(typeof f.price!=="number") return false;
@@ -54,19 +65,23 @@ function cheapest(data,{maxStops=Infinity,exclude=[]}={}){
     return Math.max(0,legs.length-1)<=maxStops&&!via.some(c=>bad.has(c))&&!legs.slice(1).some(l=>bad.has(l.departure_airport?.id));
   });
   if(!all.length) return null;
-  const f=all.reduce((a,b)=>b.price<a.price?b:a);
+  const eff=x=>x.price+(checkedBag&&bagInfo(x).bag==="fee"?bagFee:0);
+  const f=all.reduce((a,b)=>eff(b)<eff(a)?b:a);
+  const bi=bagInfo(f);
   const legs=f.flights||[]; const first=legs[0]||{}, last=legs[legs.length-1]||{};
   const pi=data.price_insights||{};
   const via=(f.layovers||[]).map(l=>l.id).filter(Boolean);
   return {price:f.price,airline:[...new Set(legs.map(l=>l.airline).filter(Boolean))].join(" + "),stops:Math.max(0,legs.length-1),
     via:via.length?via:legs.slice(1).map(l=>l.departure_airport?.id).filter(Boolean),
     duration:f.total_duration||null,fromAirport:first.departure_airport?.id||null,toAirport:last.arrival_airport?.id||null,
-    departTime:first.departure_airport?.time||null,level:pi.price_level||null,typical:pi.typical_price_range||null,hist:histStats(pi.price_history)};
+    departTime:first.departure_airport?.time||null,level:pi.price_level||null,typical:pi.typical_price_range||null,hist:histStats(pi.price_history),
+    ...bi,bagFee:checkedBag&&bi.bag==="fee"?bagFee:0,eff:eff(f)};
 }
 const TIMES=/^\d{1,2},\d{1,2}(,\d{1,2},\d{1,2})?$/;
-export async function searchFare({from,to,depart,ret,adults,stops="any",excludeConns=[],outboundTimes,returnTimes},key,fetchImpl=fetch){
+export async function searchFare({from,to,depart,ret,adults,stops="any",excludeConns=[],outboundTimes,returnTimes,carryOn=false,checkedBag=false,bagFee=0},key,fetchImpl=fetch){
   const p={engine:"google_flights",departure_id:from.join(","),arrival_id:to.join(","),outbound_date:depart,return_date:ret,
     type:"1",currency:"EUR",gl:"de",hl:"en",adults:String(adults||1),stops:STOPS[stops]||"0"};
+  if(carryOn) p.bags="1"; // carry-on fees are then included in the prices
   if(excludeConns.length&&stops!=="direct") p.exclude_conns=excludeConns.join(",");
   if(outboundTimes&&TIMES.test(outboundTimes)) p.outbound_times=outboundTimes;
   if(returnTimes&&TIMES.test(returnTimes)) p.return_times=returnTimes;
@@ -76,7 +91,7 @@ export async function searchFare({from,to,depart,ret,adults,stops="any",excludeC
   if(!r.ok&&!data.error) throw new Error("SerpApi HTTP "+r.status);
   const url=data.search_metadata?.google_flights_url||null;
   if(data.error&&!/no results|hasn't returned any results/i.test(data.error)) throw new Error(data.error);
-  const best=cheapest(data,{maxStops:stops==="direct"?0:stops==="max1"?1:Infinity,exclude:excludeConns});
+  const best=cheapest(data,{maxStops:stops==="direct"?0:stops==="max1"?1:Infinity,exclude:excludeConns,checkedBag,bagFee:Math.max(0,Math.min(400,Number(bagFee)||0))});
   return {...(best||{price:null}),currency:"EUR",url};
 }
 
@@ -101,7 +116,7 @@ export default async function handler(req,_ctx,fetchImpl=fetch){
   const adults=Math.min(4,Math.max(1,Number(b.adults)||1));
   const stops=STOPS[b.stops]?b.stops:"any";
   const excludeConns=[...new Set((b.excludeConns||[]).filter(x=>CODE.test(x)))].slice(0,40);
-  try{return json(200,await searchFare({from,to,depart:b.depart,ret:b.return,adults,stops,excludeConns,outboundTimes:b.outboundTimes,returnTimes:b.returnTimes},key,fetchImpl));}
+  try{return json(200,await searchFare({from,to,depart:b.depart,ret:b.return,adults,stops,excludeConns,outboundTimes:b.outboundTimes,returnTimes:b.returnTimes,carryOn:!!b.carryOn,checkedBag:!!b.checkedBag,bagFee:b.bagFee},key,fetchImpl));}
   catch(e){return json(502,{error:String(e.message||e).slice(0,200)});}
 }
 

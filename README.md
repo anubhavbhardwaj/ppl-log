@@ -27,6 +27,13 @@ Static site: plain HTML and ES modules, Firebase Auth (email + password) and Fir
   when it is in or within 14 days of its booking window (max 10 searches, stops below 30 left). Needs
   `FIREBASE_SERVICE_ACCOUNT` (service account JSON) and `SERPAPI_KEY`. Summary in `users/{uid}/meta/jobs`.
 
+## Baggage
+
+Carry-on is assumed (SerpApi `bags=1`), so carry-on fees are part of every price. Google Flights has no checked-bag
+filter; results note "Checked baggage for a fee" on Light/basic fares. When a trip needs a checked bag (default for
+long-haul, optional in Europe), such fares get an estimated return bag cost added (€140 long-haul, €80 Europe)
+before the cheapest option is picked, and prices are compared on that total.
+
 ## When to book
 
 `bookingAdvice` in `js/leave.js`: short-haul Europe window 12 to 5 weeks before departure; long-haul 6 months

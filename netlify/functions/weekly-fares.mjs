@@ -43,7 +43,7 @@ export async function runWeekly({fetchImpl=fetch,now=today()}={}){
     }catch(e){log.skipped.push(t.title+" ("+String(e.message).slice(0,60)+")");continue;}
     const newRow={depart:cand.depart,return:cand.return,...res};
     const results=sameKey?(fares.results||[]).filter(r=>r.depart!==own).concat(newRow):[newRow];
-    const track=(sameKey&&Array.isArray(fares.track)?fares.track:[]).concat(res.price!=null?[{d:now,p:res.price}]:[]).slice(-30);
+    const track=(sameKey&&Array.isArray(fares.track)?fares.track:[]).concat(res.price!=null?[{d:now,p:res.eff??res.price}]:[]).slice(-30);
     await db.set(`users/${uid}/fares/${tripId}`,{...(sameKey?fares:{}),checkedAt:new Date().toISOString(),key:fareKey(t),mode:p.stops,avoidME:p.avoidME,results,track,auto:true});
     log.checked.push(`${t.title}: ${res.price!=null?"€"+res.price:"no flights"}`);
   }
