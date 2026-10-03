@@ -161,3 +161,41 @@ export function shiftTrip(t,delta){
   const s=d=>d?addDays(d,delta):d;
   return {...t,depart:s(t.depart),return:s(t.return),blocks:(t.blocks||[]).map(b=>({...b,start:s(b.start),end:s(b.end)}))};
 }
+
+/* ---------- When to book ----------
+   Booking windows (days before departure) from Google Flights data and fare-tracker guidance:
+   short-haul Europe is usually cheapest 5 to 12 weeks out; long-haul 7 weeks to 6 months, earlier for peak
+   periods (Indian peak seasons: Diwali Oct-Nov, Christmas and winter Dec-Jan, summer holidays May-Jun).
+   The live signal from the last price check can override: a low price says book now, a rising trend
+   shortens the countdown. */
+export function bookingWindow(t){
+  if(t.kind==="rome"||t.kind==="europe") return {open:84,close:35,why:"Short-haul Europe: fares usually bottom out 5 to 12 weeks before departure."};
+  const m=Number((t.depart||"").slice(5,7));
+  if([10,11,12,1,5,6].includes(m)) return {open:210,close:70,why:"Long-haul in peak season: book 10 weeks to 7 months ahead."};
+  return {open:180,close:49,why:"Long-haul: fares are usually lowest 7 weeks to 6 months ahead."};
+}
+// row: the last price-check result for the trip's current dates ({price, level, typical, hist}); checkedAt: ISO time.
+export function bookingAdvice(t,row,checkedAt,today){
+  if(!t.depart||t.depart<=today) return null;
+  if(t.status==="booked") return {state:"booked",badge:"Booked"};
+  const w=bookingWindow(t); const open=addDays(t.depart,-w.open), close=addDays(t.depart,-w.close);
+  const dleft=d=>Math.round((parseYmd(d)-parseYmd(today))/864e5);
+  const reasons=[w.why];
+  let low=false, rising=false, falling=false;
+  const fresh=checkedAt&&dleft(checkedAt.slice(0,10))>=-7;
+  if(row&&row.price!=null){
+    low=row.level==="low"||(row.typical&&row.price<=row.typical[0])||(row.hist&&row.price<=row.hist.min*1.03);
+    if(row.hist){rising=row.hist.change14>=5;falling=row.hist.change14<=-5;}
+  }
+  const base={open,close,why:w.why,low,rising,falling,fresh:!!fresh,reasons};
+  if(today<open){
+    if(low&&fresh) return {...base,state:"now",badge:"Unusually low",days:null,headline:"Unusually low fare for this route, consider booking now"};
+    const d=dleft(open); return {...base,state:"early",days:d,badge:`Watch in ${d} d`,headline:`${d} days until the booking window opens`};
+  }
+  if(today<=close){
+    if(low&&fresh) return {...base,state:"now",badge:"Book now",days:0,headline:"Book now: the price is low for this route"};
+    let d=dleft(close); if(rising&&fresh) d=Math.min(d,7);
+    return {...base,state:"window",days:d,badge:`Book in ${d} d`,headline:`Book within ${d} day${d===1?"":"s"}`};
+  }
+  return {...base,state:"late",days:0,badge:"Book now",headline:"Book now: fares usually rise from here"};
+}

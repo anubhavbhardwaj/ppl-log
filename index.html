@@ -167,6 +167,23 @@ details.card summary{font-size:14px}
 input[type=date].field{min-height:44px}
 .lblock .field{margin-top:0;padding:9px 8px}
 .fares{border-top:1px solid var(--line);margin-top:10px;padding-top:10px}
+.fares.first{border-top:0;margin-top:0;padding-top:0}
+.triplist{display:flex;flex-direction:column;gap:8px}
+.triprow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;color:var(--fg);font:inherit;cursor:pointer}
+.triprow .plate{width:14px;height:14px}
+.tr-main{display:flex;flex-direction:column;min-width:0;flex:1}
+.tr-main b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chev{color:var(--muted);font-size:22px;line-height:1}
+.bk{font-size:11px;font-weight:700;padding:4px 8px;border-radius:999px;white-space:nowrap;flex:none;background:var(--surface-2);color:var(--muted)}
+.bk.window{background:var(--wfi-bg);color:var(--wfi)}.bk.now,.bk.late{background:var(--vac);color:#fff}.bk.booked{background:var(--vac-bg);color:var(--vac)}
+.booking .bk-head{margin:6px 0 8px}
+.bignum{font-family:var(--display);font-weight:800;font-size:44px;line-height:1}
+.bignum.now{color:var(--vac);font-size:34px}
+.bk-bar{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden;margin:4px 0}
+.bk-bar span{display:block;height:100%;background:var(--wfi)}
+.booking.now .bk-bar span,.booking.late .bk-bar span{background:var(--vac)}
+.bk-facts{margin:10px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.booknudge.now,.booknudge.late{border-color:var(--vac)}
 .fares details{margin-top:6px}
 .fare-list{margin-top:8px}
 .fare-list li{padding:6px 8px;border-radius:8px}

@@ -11,8 +11,15 @@ Static site: plain HTML and ES modules, Firebase Auth (email + password) and Fir
   On trip days the PPL sequence pauses and a travel session is suggested.
 - **Gym**: plan grid for all three phases, session previews, history with calorie estimates
   (MET x body weight x session time; MET from kg lifted per minute, 3.5 to 6).
-- **Travel**: leave balances per year, trips with leave blocks, year calendar, Bavarian (Munich)
-  public holidays, long weekends and bridge days, and flight prices per trip.
+- **Travel**: leave balances per year and a compact trip list; each trip opens its own page with a
+  "when to book" timer, flight prices and details. Calendar, bridges, holidays and budget are collapsible.
+
+## When to book
+
+`bookingAdvice` in `js/leave.js`: short-haul Europe window 12 to 5 weeks before departure; long-haul 6 months
+to 7 weeks, or 7 months to 10 weeks in peak months (Oct-Jan, May-Jun). The last price check refines it:
+Google's price level, typical range and ~60-day price history (summarised server-side as `hist`).
+A low price means book now; prices up 5%+ in two weeks cap the countdown at 7 days.
 
 ## Flight prices
 

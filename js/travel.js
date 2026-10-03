@@ -1,7 +1,8 @@
-/* Travel tab: leave balances, trips, year calendar, holidays and bridges, trip editor. */
+/* Travel tab: leave balances and a compact trip list; each trip opens its own page with the booking timer,
+   flight prices and details. Calendar, bridges, holidays and budget sit in collapsible sections. */
 import {$,esc,todayStr,addDays,daysBetween,fmtDate,eachDay,parseYmd,ls,toast,guard,UI,bus} from "./util.js";
 import {S,saveTrip,removeTrip,saveLeave,seedTrips,saveFares,idToken} from "./store.js";
-import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027,candidateDates,shiftTrip} from "./leave.js";
+import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027,candidateDates,shiftTrip,bookingAdvice,bookingWindow} from "./leave.js";
 
 const KIND_PLATE={rome:"push",india:"legs",europe:"pull",other:"home"};
 const STATUS={idea:"Idea",planned:"Planned",booked:"Booked"};
@@ -19,16 +20,33 @@ export function travelToday(){
     return `<button class="card tripline ${cur.kind||"other"}" data-gotravel><span class="plate ${KIND_PLATE[cur.kind]||"home"}"></span><span><span class="label">Away · day ${day} of ${len}</span><br><b>${esc(cur.title)}</b> <span class="small muted">· today: ${esc(what)}</span></span></button>`;
   }
   const next=S.trips.filter(x=>x.status!=="idea"&&x.depart>t).sort((a,b)=>a.depart.localeCompare(b.depart))[0];
-  if(!next) return "";
+  if(!next) return bookNudge();
   const n=daysBetween(t,next.depart);
-  return `<button class="card tripline" data-gotravel><span class="plate ${KIND_PLATE[next.kind]||"home"}"></span><span><span class="label">Next trip · ${n===1?"tomorrow":"in "+n+" days"}</span><br><b>${esc(next.title)}</b> <span class="small muted">· ${short(next.depart)} to ${short(next.return)}</span></span></button>`;
+  return bookNudge()+`<button class="card tripline" data-opentrip="${next.id}"><span class="plate ${KIND_PLATE[next.kind]||"home"}"></span><span><span class="label">Next trip · ${n===1?"tomorrow":"in "+n+" days"}</span><br><b>${esc(next.title)}</b> <span class="small muted">· ${short(next.depart)} to ${short(next.return)}</span></span></button>`;
+}
+
+// Most urgent "book now / book within N days" across planned trips, shown on Today.
+function bookNudge(){
+  const t=todayStr();
+  const list=S.trips.filter(x=>x.status==="planned").map(x=>({t:x,a:advice(x)})).filter(x=>x.a&&(x.a.state==="now"||x.a.state==="late"||(x.a.state==="window"&&x.a.days<=14)));
+  if(!list.length) return "";
+  list.sort((a,b)=>(a.a.days??0)-(b.a.days??0));
+  const {t:tr,a}=list[0];
+  return `<button class="card tripline booknudge ${a.state}" data-opentrip="${tr.id}"><span class="plate ${KIND_PLATE[tr.kind]||"home"}"></span><span><span class="label">Book flights</span><br><b>${esc(tr.title)}</b> <span class="small">· ${esc(a.state==="window"?a.headline.toLowerCase():a.badge.toLowerCase())}</span></span></button>`;
+}
+// Advice uses the last check's result for the trip's current dates, if that check still matches the trip.
+function advice(t){
+  const f=S.fares[t.id]; const row=f&&f.key===fareKey(t)?(f.results||[]).find(r=>r.depart===t.depart):null;
+  return bookingAdvice(t,row,f&&f.checkedAt,todayStr());
 }
 
 /* ---------- Travel tab ---------- */
 export function renderTravel(){
   if(UI.editTrip) return renderEditor();
-  const y=UI.travelYear;
+  if(UI.openTrip){const tr=S.trips.find(x=>x.id===UI.openTrip); if(tr) return renderTripPage(tr); UI.openTrip=null;}
+  const y=UI.travelYear; const today=todayStr();
   const trips=S.trips.filter(t=>tripInYear(t,y));
+  const upcoming=trips.filter(t=>!t.return||t.return>=today), past=trips.filter(t=>t.return&&t.return<today);
   const bal=balances(S.trips,S.leave,y);
   const probs=problems(S.trips,S.leave,y);
   const tile=(label,b,note)=>{const pct=b.total?Math.min(100,Math.max(0,b.used/b.total*100)):0;
@@ -36,29 +54,69 @@ export function renderTravel(){
   const ideaDays=bal.ideas.vacation+bal.ideas.yearEnd+bal.ideas.wfi;
   return `<div class="stack">
     <div class="spread"><h1>Travel</h1><div class="row yearpick"><button class="btn sm ghost" data-year="${y-1}" aria-label="Previous year">‹</button><b class="num">${y}</b><button class="btn sm ghost" data-year="${y+1}" aria-label="Next year">›</button></div></div>
-    <div class="tiles">${tile("Vacation",bal.flexible,`${bal.budget.yearEnd} more held for year-end`)}${tile("Year-end",bal.yearEnd)}${tile("WFI",bal.wfi,bal.wfi.left>0?"Use them all":"")}</div>
+    <div class="tiles">${tile("Vacation",bal.flexible,`+${bal.budget.yearEnd} year-end`)}${tile("Year-end",bal.yearEnd)}${tile("WFI",bal.wfi)}</div>
     ${ideaDays?`<p class="small muted" style="margin:-4px 0 0">Ideas not yet counted: ${countText(bal.ideas)}.</p>`:""}
-    ${bal.flexible.left>0?`<p class="small muted" style="margin:-4px 0 0">Unused vacation only carries into ${y+1} as an extension of the year-end block. Add it as a block in early January marked "carried over".</p>`:""}
     ${probs.length?`<div class="card warn"><div class="label">Check these</div><ul class="small" style="margin:6px 0 0;padding-left:18px">${probs.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></div>`:""}
     ${!trips.length?`<div class="card"><h3>No trips in ${y} yet</h3>${y===2027?`<p class="small muted">Load the plan we worked out: two Rome weekends in Jan and Feb, India in late May (2 weeks vacation + 1 week WFI) and India in December (10 WFI days + 6 year-end days).</p><button class="btn primary block" data-seed>Load my 2027 plan</button>`:`<p class="small muted">Add a trip to start counting leave for ${y}.</p>`}</div>`:""}
-    ${trips.map(tripCard).join("")}
+    ${upcoming.length?`<div class="triplist">${upcoming.map(tripRow).join("")}</div>`:""}
     <button class="btn block" data-newtrip>+ Add trip</button>
-    <div class="card"><div class="spread"><div class="label">${y} at a glance</div></div>${legend()}<div class="months">${(()=>{const map=dayMap(S.trips);return Array.from({length:12},(_,m)=>monthGrid(y,m,map)).join("")})()}</div></div>
-    <details class="card"><summary>Long weekends and bridges in ${y}</summary>${bridgeList(y)}</details>
-    <details class="card"><summary>Public holidays in ${y} (Bavaria, Munich)</summary><ul class="list small" style="margin-top:8px">${[...holidays(y)].map(([d,n])=>`<li><span>${esc(n)}</span><span class="muted ${isWeekend(d)?"strike":""}">${fmtDate(d)}${isWeekend(d)?" · weekend":""}</span></li>`).join("")}</ul></details>
-    <details class="card"><summary>Leave budget for ${y}</summary>${budgetForm(y)}</details>
+    ${past.length?`<details class="card"><summary>Past trips (${past.length})</summary><div class="triplist" style="margin-top:8px">${past.map(tripRow).join("")}</div></details>`:""}
+    <details class="card"${UI.calOpen?" open":""} data-cal><summary>${y} calendar</summary>${legend()}<div class="months">${(()=>{const map=dayMap(S.trips);return Array.from({length:12},(_,m)=>monthGrid(y,m,map)).join("")})()}</div></details>
+    <details class="card"><summary>Long weekends and bridges</summary>${bridgeList(y)}</details>
+    <details class="card"><summary>Public holidays (Bavaria, Munich)</summary><ul class="list small" style="margin-top:8px">${[...holidays(y)].map(([d,n])=>`<li><span>${esc(n)}</span><span class="muted ${isWeekend(d)?"strike":""}">${fmtDate(d)}${isWeekend(d)?" · weekend":""}</span></li>`).join("")}</ul></details>
+    <details class="card"><summary>Leave budget</summary>${budgetForm(y)}<p class="small muted" style="margin:8px 0 0">Unused vacation only carries into ${y+1} as an extension of the year-end block: add it as a January block marked "carried over".</p></details>
   </div>`;
 }
-function tripCard(t){
-  const c=tripCounts(t,UI.travelYear); const a=t.airports||{}; const f=t.flex||{};
+const kindChips=c=>["vacation","yearEnd","wfi"].filter(k=>c[k]).map(k=>`<span class="chip ${k}">${c[k]} ${k==="wfi"?"WFI":BLOCK_TYPES[k].toLowerCase()}</span>`).join("");
+function tripRow(t){
+  const c=tripCounts(t,UI.travelYear); const a=advice(t);
   const nights=t.depart&&t.return?daysBetween(t.depart,t.return):null;
-  return `<div class="card trip"><div class="spread"><span class="tag"><span class="plate ${KIND_PLATE[t.kind]||"home"}"></span>${esc(t.title)}</span><span class="badge ${t.status}">${STATUS[t.status]||""}</span></div>
-    <p class="small" style="margin:6px 0 0">${t.depart?fmtDate(t.depart):"?"} to ${t.return?fmtDate(t.return):"?"}${nights!=null?` · ${plural(nights,"night")}`:""}</p>
-    <div class="chips">${["vacation","yearEnd","wfi"].filter(k=>c[k]).map(k=>`<span class="chip ${k}">${c[k]} ${k==="wfi"?"WFI":BLOCK_TYPES[k].toLowerCase()}</span>`).join("")||`<span class="chip">No leave days</span>`}</div>
-    ${(a.from||[]).length||(a.to||[]).length?`<p class="small muted" style="margin:6px 0 0">Flights ${esc((a.from||[]).join("/"))} → ${esc((a.to||[]).join("/")||"?")}${f.departFrom&&f.departTo?` · depart ${short(f.departFrom)} to ${short(f.departTo)}`:""}</p>`:""}
-    ${t.note?`<p class="small muted" style="margin:4px 0 0">${esc(t.note)}</p>`:""}
-    ${fareSection(t)}
-    <button class="linkbtn small" style="margin-top:6px" data-edittrip="${t.id}">Edit</button></div>`;
+  return `<button class="triprow" data-opentrip="${t.id}">
+    <span class="plate ${KIND_PLATE[t.kind]||"home"}"></span>
+    <span class="tr-main"><b>${esc(t.title)}</b><span class="small muted">${t.depart?short(t.depart):"?"} to ${t.return?short(t.return):"?"}${nights!=null?` · ${plural(nights,"night")}`:""}${t.status==="idea"?" · idea":""}</span>
+      <span class="chips" style="margin-top:4px">${kindChips(c)}</span></span>
+    ${a?`<span class="bk ${a.state}">${esc(a.badge)}</span>`:""}<span class="chev" aria-hidden="true">›</span></button>`;
+}
+
+/* ---------- Trip page ---------- */
+function renderTripPage(t){
+  const c=tripCounts(t,null); const nights=t.depart&&t.return?daysBetween(t.depart,t.return):null;
+  const a=t.airports||{}; const f=t.flex||{};
+  return `<div class="stack"><button class="linkbtn" data-closetrip>← Travel</button>
+    <div class="card"><div class="spread"><span class="tag"><span class="plate ${KIND_PLATE[t.kind]||"home"}"></span>${esc(KINDS[t.kind]||"")}</span><span class="badge ${t.status}">${STATUS[t.status]||""}</span></div>
+      <h2 style="margin-top:6px;font-size:28px">${esc(t.title)}</h2>
+      <p class="small" style="margin:4px 0 0">${t.depart?fmtDate(t.depart):"?"} to ${t.return?fmtDate(t.return):"?"}${nights!=null?` · ${plural(nights,"night")}`:""}</p>
+      <div class="chips">${kindChips(c)||`<span class="chip">No leave days</span>`}</div>
+      <div class="row" style="margin-top:10px"><button class="btn sm" data-edittrip="${t.id}">Edit trip</button>${t.status==="planned"?`<button class="btn sm ghost" data-markbooked="${t.id}">Mark as booked</button>`:""}</div></div>
+    ${bookingCard(t)}
+    <div class="card"><div class="label">Flights</div>
+      ${(a.from||[]).length?`<p class="small" style="margin:6px 0 8px">${esc((a.from||[]).join(", "))} → ${esc((a.to||[]).join(", ")||"?")}${f.departFrom&&f.departTo?`<br><span class="muted">Searching departures ${short(f.departFrom)} to ${short(f.departTo)}, ${plural(Number(f.nights)||nights||0,"night")}</span>`:""}</p>`:`<p class="small muted">Add airports in Edit trip to check prices.</p>`}
+      ${fareSection(t)}</div>
+    ${t.note?`<div class="card"><div class="label">Note</div><p class="small" style="margin:6px 0 0">${esc(t.note)}</p></div>`:""}
+  </div>`;
+}
+function bookingCard(t){
+  const a=advice(t);
+  if(!a) return "";
+  if(a.state==="booked") return `<div class="card"><div class="label">When to book</div><p style="margin:6px 0 0"><b>Booked.</b> <button class="linkbtn small" data-unbook="${t.id}">Mark as not booked</button></p></div>`;
+  const total=daysBetween(a.open,a.close), into=Math.min(total,Math.max(0,daysBetween(a.open,todayStr())));
+  const f=S.fares[t.id]; const row=f&&f.key===fareKey(t)?(f.results||[]).find(r=>r.depart===t.depart):null;
+  const facts=[];
+  if(row&&row.price!=null){
+    facts.push(`Last check ${ago(f.checkedAt)}: <b>${eur(row.price)}</b> for your dates${row.level?`, <span class="lvl ${esc(row.level)}">${esc(row.level)}</span> for this route`:""}${row.typical?` (usually ${eur(row.typical[0])} to ${eur(row.typical[1])})`:""}.`);
+    if(row.hist) facts.push(`Past ${row.hist.days} days: ${row.hist.change14>=5?`up ${row.hist.change14}% in the last 2 weeks`:row.hist.change14<=-5?`down ${-row.hist.change14}% in the last 2 weeks`:"roughly flat in the last 2 weeks"}, lowest ${eur(row.hist.min)}.`);
+  } else facts.push("No price check yet for these dates. Check prices to refine the timer.");
+  const big=a.state==="early"?`<div class="bignum num">${a.days}</div><div class="small muted">days until the window opens on ${fmtDate(a.open)}</div>`
+    :a.state==="window"?`<div class="bignum num">${a.days}</div><div class="small muted">days left to book, window closes ${fmtDate(a.close)}${a.rising&&a.fresh?" (shortened: prices rising)":""}</div>`
+    :`<div class="bignum now">Book now</div><div class="small muted">${esc(a.headline.replace(/^Book now: /,""))}</div>`;
+  const stale=(a.state==="window"||a.state==="late")&&!a.fresh&&!!row;
+  return `<div class="card booking ${a.state}"><div class="label">When to book</div>
+    <div class="bk-head">${big}</div>
+    <div class="bk-bar" aria-hidden="true"><span style="width:${a.state==="early"?0:total?Math.round(into/total*100):100}%"></span></div>
+    <div class="spread small muted"><span>Opens ${short(a.open)}</span><span>Closes ${short(a.close)}</span></div>
+    <ul class="small bk-facts">${[a.why,...facts].map(x=>`<li>${x===a.why?esc(x):x}</li>`).join("")}</ul>
+    ${stale?`<p class="small" style="margin:6px 0 0;color:var(--warn)">Prices haven't been checked in the last week. Check again to keep the timer accurate.</p>`:""}
+  </div>`;
 }
 
 /* ---------- Flight prices ---------- */
@@ -87,8 +145,8 @@ function fareSection(t){
   if(run) return `<div class="fares"><div class="label">Checking prices · ${run.done} of ${run.total}</div><div class="meter"><span style="width:${run.done/run.total*100}%"></span></div></div>`;
   const f=S.fares[t.id];
   const btn=label=>`<button class="btn sm" data-checkfares="${t.id}"${UI.fareRun?" disabled":""}>${label} · ${(n===1?"1 search":n+" searches")}</button>`;
-  const filt=`<p class="small muted" style="margin:0 0 6px">${esc(prefText(t))} · <button class="linkbtn small" data-edittrip="${t.id}">change</button></p>`;
-  if(!f||!(f.results||[]).length) return `<div class="fares">${filt}${btn("Check flight prices")}</div>`;
+  const filt=`<p class="small muted" style="margin:0 0 6px">${esc(prefText(t))}</p>`;
+  if(!f||!(f.results||[]).length) return `<div class="fares first">${filt}${btn("Check flight prices")}</div>`;
   const rows=[...f.results].sort((x,y)=>x.depart.localeCompare(y.depart));
   const priced=rows.filter(r=>r.price!=null);
   const best=priced.reduce((x,y)=>!x||y.price<x.price?y:x,null);
@@ -196,7 +254,7 @@ function renderEditor(){
       <button class="btn sm ghost" data-rmblock="${i}" aria-label="Remove block">✕</button></div>
       <div class="grid2"><input class="field" type="date" data-f="blocks.${i}.start" value="${esc(b.start)}" aria-label="Block start"><input class="field" type="date" data-f="blocks.${i}.end" value="${esc(b.end)}" aria-label="Block end"></div>
       <div class="small muted">${plural(n,"workday")} charged${jan?` · <label><input type="checkbox" data-f="blocks.${i}.carry"${b.carry?" checked":""}> carried over from ${Number(b.start.slice(0,4))-1}</label>`:""}</div></div>`;};
-  return `<div class="stack"><button class="linkbtn" data-tback>← Travel</button>
+  return `<div class="stack"><button class="linkbtn" data-tback>← ${t.id?"Trip":"Travel"}</button>
     <h1>${isNew?"New trip":"Edit trip"}</h1>
     <div class="card stack">
       <label><span class="label">Name</span><input class="field" data-f="title" value="${esc(t.title)}" placeholder="e.g. Rome, Easter weekend"></label>
@@ -250,7 +308,13 @@ function onTripChange(t,path,prevKind){
 
 export function bindTravel(app){
   const render=()=>bus.render();
-  app.querySelectorAll("[data-gotravel]").forEach(b=>b.onclick=()=>{UI.tab="travel";UI.editTrip=null;ls.set("ppl_tab","travel");render();window.scrollTo(0,0)});
+  app.querySelectorAll("[data-gotravel]").forEach(b=>b.onclick=()=>{UI.tab="travel";UI.editTrip=null;UI.openTrip=null;ls.set("ppl_tab","travel");render();window.scrollTo(0,0)});
+  app.querySelectorAll("[data-opentrip]").forEach(b=>b.onclick=()=>{UI.tab="travel";UI.editTrip=null;UI.openTrip=b.dataset.opentrip;UI.confirm=null;ls.set("ppl_tab","travel");render();window.scrollTo(0,0)});
+  app.querySelectorAll("[data-closetrip]").forEach(b=>b.onclick=()=>{UI.openTrip=null;render();window.scrollTo(0,0)});
+  app.querySelectorAll("[data-cal]").forEach(d=>d.ontoggle=()=>{if(d.isConnected)UI.calOpen=d.open});
+  const setStatus=async(id,status,msg)=>{const t=S.trips.find(x=>x.id===id);if(!t)return;await guard(saveTrip({...t,status}));toast(msg)};
+  app.querySelectorAll("[data-markbooked]").forEach(b=>b.onclick=()=>setStatus(b.dataset.markbooked,"booked","Marked as booked"));
+  app.querySelectorAll("[data-unbook]").forEach(b=>b.onclick=()=>setStatus(b.dataset.unbook,"planned","Back to planned"));
   app.querySelectorAll("[data-year]").forEach(b=>b.onclick=()=>{UI.travelYear=Number(b.dataset.year);ls.set("cad_year",UI.travelYear);render()});
   app.querySelectorAll("[data-seed]").forEach(b=>b.onclick=async()=>{b.disabled=true;try{await guard(seedTrips(draftPlan2027().map(t=>({...t,blocks:t.blocks.map(x=>({...x}))})),2027,S.leave["2027"]?null:{...DEFAULT_BUDGET}));toast("2027 plan loaded")}catch(e){b.disabled=false}});
   app.querySelectorAll("[data-newtrip]").forEach(b=>b.onclick=()=>{UI.editTrip=blank();UI.confirm=null;render();window.scrollTo(0,0)});
@@ -265,7 +329,7 @@ export function bindTravel(app){
   app.querySelectorAll("[data-usefare]").forEach(b=>b.onclick=async()=>{const [id,dep]=b.dataset.usefare.split("|");const t=S.trips.find(x=>x.id===id);if(!t)return;
     const moved=shiftTrip(t,daysBetween(t.depart,dep));
     await guard(saveTrip(moved));toast(`Moved to ${short(moved.depart)} to ${short(moved.return)}`)});
-  if(UI.tab==="travel"&&!UI.editTrip&&fares.left===undefined&&Object.keys(S.fares).length) refreshLeft();
+  if(UI.tab==="travel"&&UI.openTrip&&!UI.editTrip&&fares.left===undefined&&Object.keys(S.fares).length) refreshLeft();
   // editor
   const t=UI.editTrip; if(!t) return;
   app.querySelectorAll("[data-tback]").forEach(b=>b.onclick=()=>{UI.editTrip=null;UI.confirm=null;render();window.scrollTo(0,0)});
@@ -283,7 +347,7 @@ export function bindTravel(app){
   app.querySelectorAll("[data-rmblock]").forEach(b=>b.onclick=()=>{t.blocks.splice(Number(b.dataset.rmblock),1);render()});
   app.querySelectorAll("[data-askdeltrip]").forEach(b=>b.onclick=()=>{UI.confirm="deltrip";render()});
   app.querySelectorAll("[data-cancelconfirm]").forEach(b=>b.onclick=()=>{UI.confirm=null;render()});
-  app.querySelectorAll("[data-deltrip]").forEach(b=>b.onclick=async()=>{await guard(removeTrip(t.id));UI.editTrip=null;UI.confirm=null;render();toast("Trip deleted")});
+  app.querySelectorAll("[data-deltrip]").forEach(b=>b.onclick=async()=>{await guard(removeTrip(t.id));UI.editTrip=null;UI.openTrip=null;UI.confirm=null;render();toast("Trip deleted")});
   app.querySelectorAll("[data-savetrip]").forEach(b=>b.onclick=async()=>{
     if(!t.title.trim()){toast("Give the trip a name");return;}
     if(!t.depart||!t.return||t.depart>t.return){toast("Check the travel dates");return;}
