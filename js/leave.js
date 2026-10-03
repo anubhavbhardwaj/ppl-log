@@ -143,7 +143,9 @@ export function draftPlan2027(){
 export const ME_HUBS=["DXB","DWC","AUH","SHJ","DOH","BAH","KWI","MCT","SLL","RUH","JED","DMM","MED","AMM","AQJ","TLV","BEY","BGW","BSR","EBL","ISU","IKA","THR","MHD","SYZ","DAM","CAI","HBE","SSH","HRG","ADE","SAH"];
 // Weekend-saver: leave Friday from 14:00, land back Monday by 09:00 (SerpApi outbound_times / return_times).
 export const WS_TIMES={outbound:"14,23",ret:"0,23,0,8"};
-export const flightPrefs=t=>({stops:"any",avoidME:true,weekendSaver:t.kind==="rome"||t.kind==="india",...(t.flights||{})});
+// Weekend-saver is a strict time filter (it hides connections that land later, e.g. via Helsinki), so it is off
+// unless switched on for a trip.
+export const flightPrefs=t=>({stops:"any",avoidME:true,weekendSaver:false,...(t.flights||{})});
 export const fareKey=t=>{const p=flightPrefs(t);const n=t.depart&&t.return?searchNights(t):"";
   return `${(t.airports?.from||[]).join(",")}>${(t.airports?.to||[]).join(",")}|${n}|${p.stops}|${p.avoidME?1:0}${p.weekendSaver?"|ws":""}`;};
 // Search parameters for /api/fares, minus the dates.

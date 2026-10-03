@@ -16,7 +16,7 @@ Static site: plain HTML and ES modules, Firebase Auth (email + password) and Fir
 
 ## Weekend-saver, scorer and AI advice
 
-- Weekend-saver (per trip, default on for Rome and India): searches Friday departures from 14:00 and Monday
+- Weekend-saver (per trip, off by default because it is a strict filter): searches Friday departures from 14:00 and Monday
   returns landing by 09:00 (SerpApi `outbound_times=14,23`, `return_times=0,23,0,8`). Moving a trip to such an
   option keeps leave blocks between Friday and Monday, so those two days stay workdays.
 - Scorer (`scoreOptions` in `js/leave.js`): fare + €120 per extra vacation day + €40 per extra WFI day + €35 per stop.
