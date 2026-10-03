@@ -46,7 +46,8 @@ and can avoid layovers at Middle East hubs (Gulf, Iran, Iraq, Levant, Egypt) via
 ## Data
 
 All data lives under `users/{uid}/`:
-- `meta/state`: `{ next }`, the index (0-35) of the next session in Phase 1 order.
+- `meta/state`: `{ next }`, pointer (0-35) into Phase 1 order; the next session is the first one at or after it that isn't logged.
+- Skipping a gym day logs `{ type: "skip", date }`; the session moves to the next gym day.
 - `logs/*`: one document per finished gym or office-day session.
 - `trips/*`: `{ title, kind, status, depart, return, blocks: [{ type, start, end, carry? }], flex: { departFrom, departTo, nights }, airports: { from, to }, note }`.
   Block types are `vacation`, `yearEnd` and `wfi`. Only weekdays that aren't Bavarian public holidays are charged.
