@@ -34,6 +34,13 @@ filter; results note "Checked baggage for a fee" on Light/basic fares. When a tr
 long-haul, optional in Europe), such fares get an estimated return bag cost added (€140 long-haul, €80 Europe)
 before the cheapest option is picked, and prices are compared on that total.
 
+## Premium economy
+
+Long-haul trips also compare premium economy (`travel_class=2`), with the same stops, layover and bag rules. To save
+searches it is checked only for the 3 best economy dates plus the trip's own dates. Premium economy is preferred when
+it costs at most `premiumBonus` (default €100) more than economy, both bag-inclusive; the scorer ranks it at its
+price minus that allowance.
+
 ## When to book
 
 `bookingAdvice` in `js/leave.js`: short-haul Europe window 12 to 5 weeks before departure; long-haul 6 months
