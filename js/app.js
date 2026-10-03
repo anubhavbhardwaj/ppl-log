@@ -6,7 +6,7 @@ import {travelToday,currentTrip,renderTravel,bindTravel} from "./travel.js";
 import {tripOn} from "./leave.js";
 
 document.querySelectorAll("#tabbar button").forEach(b=>b.addEventListener("click",()=>{
-  UI.tab=b.dataset.tab;UI.preview=null;UI.confirm=null;UI.editTrip=null;ls.set("ppl_tab",UI.tab);render();window.scrollTo(0,0)}));
+  UI.tab=b.dataset.tab;UI.preview=null;UI.confirm=null;UI.editTrip=null;UI.openTrip=null;ls.set("ppl_tab",UI.tab);render();window.scrollTo(0,0)}));
 
 function render(){
   const app=$("#app"), bar=$("#tabbar");

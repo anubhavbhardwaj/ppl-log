@@ -1,7 +1,7 @@
 /* Cadence service worker: makes the app installable and usable offline.
    Same-origin app files are network-first (so updates arrive immediately) with a cached fallback.
    The versioned Firebase SDK and Google Fonts are cache-first. /api/* and everything else (Firestore, Auth) pass through. */
-const CACHE="cadence-v2";
+const CACHE="cadence-v3";
 const SHELL=["/","/index.html","/manifest.webmanifest","/firebase-config.js","/icon.svg","/icon-192.png","/icon-512.png","/icon-180.png",
   "/js/app.js","/js/util.js","/js/program.js","/js/store.js","/js/gym.js","/js/leave.js","/js/travel.js"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()));});

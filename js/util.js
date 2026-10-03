@@ -18,7 +18,7 @@ export async function guard(p){try{await p}catch(e){toast("Couldn't save. Check 
 
 // UI state shared across modules. Tab and gym sub-view survive reloads.
 export const UI={tab:ls.get("ppl_tab")||"today",gymView:ls.get("cad_gymview")||"plan",workout:null,preview:null,confirm:null,openLog:null,
-  travelYear:ls.get("cad_year")||2027,editTrip:null,fareRun:null,openFares:new Set()};
+  travelYear:ls.get("cad_year")||2027,editTrip:null,fareRun:null,openFares:new Set(),openTrip:null};
 if(UI.tab==="plan"||UI.tab==="history"){UI.gymView=UI.tab;UI.tab="gym";}
 if(!["today","gym","travel"].includes(UI.tab)) UI.tab="today";
 

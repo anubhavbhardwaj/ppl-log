@@ -35,6 +35,15 @@ export async function verifyToken(token,fetchImpl=fetch,now=Date.now()/1000){
 
 /* ---------- SerpApi ---------- */
 const STOPS={any:"0",direct:"1",max1:"2"};
+// Google's price history for this exact search (~2 months of daily lowest prices) reduced to a few numbers.
+export function histStats(ph){
+  const pts=(Array.isArray(ph)?ph:[]).filter(p=>Array.isArray(p)&&typeof p[0]==="number"&&typeof p[1]==="number").sort((a,b)=>a[0]-b[0]);
+  if(pts.length<3) return null;
+  const prices=pts.map(p=>p[1]).sort((a,b)=>a-b), last=pts[pts.length-1];
+  const ref=[...pts].reverse().find(p=>p[0]<=last[0]-14*86400)||pts[0];
+  return {min:prices[0],max:prices[prices.length-1],median:prices[Math.floor(prices.length/2)],last:last[1],
+    change14:ref[1]?Math.round((last[1]-ref[1])/ref[1]*100):0,days:Math.round((last[0]-pts[0][0])/86400)};
+}
 // Cheapest itinerary that respects the stop limit and avoids excluded layover airports.
 // Google applies the same filters; this is a second check on what comes back.
 function cheapest(data,{maxStops=Infinity,exclude=[]}={}){
@@ -52,7 +61,7 @@ function cheapest(data,{maxStops=Infinity,exclude=[]}={}){
   return {price:f.price,airline:[...new Set(legs.map(l=>l.airline).filter(Boolean))].join(" + "),stops:Math.max(0,legs.length-1),
     via:via.length?via:legs.slice(1).map(l=>l.departure_airport?.id).filter(Boolean),
     duration:f.total_duration||null,fromAirport:first.departure_airport?.id||null,toAirport:last.arrival_airport?.id||null,
-    departTime:first.departure_airport?.time||null,level:pi.price_level||null,typical:pi.typical_price_range||null};
+    departTime:first.departure_airport?.time||null,level:pi.price_level||null,typical:pi.typical_price_range||null,hist:histStats(pi.price_history)};
 }
 export async function searchFare({from,to,depart,ret,adults,stops="any",excludeConns=[]},key,fetchImpl=fetch){
   const p={engine:"google_flights",departure_id:from.join(","),arrival_id:to.join(","),outbound_date:depart,return_date:ret,
