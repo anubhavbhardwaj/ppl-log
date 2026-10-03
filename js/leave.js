@@ -138,28 +138,84 @@ export function draftPlan2027(){
   ];
 }
 
+/* ---------- Flight search preferences (shared by the app and the weekly server check) ---------- */
+// Gulf and wider Middle East hubs, excluded as layovers when "Avoid Middle East layovers" is on.
+export const ME_HUBS=["DXB","DWC","AUH","SHJ","DOH","BAH","KWI","MCT","SLL","RUH","JED","DMM","MED","AMM","AQJ","TLV","BEY","BGW","BSR","EBL","ISU","IKA","THR","MHD","SYZ","DAM","CAI","HBE","SSH","HRG","ADE","SAH"];
+// Weekend-saver: leave Friday from 14:00, land back Monday by 09:00 (SerpApi outbound_times / return_times).
+export const WS_TIMES={outbound:"14,23",ret:"0,23,0,8"};
+export const flightPrefs=t=>({stops:"any",avoidME:true,weekendSaver:t.kind==="rome"||t.kind==="india",...(t.flights||{})});
+export const fareKey=t=>{const p=flightPrefs(t);const n=t.depart&&t.return?searchNights(t):"";
+  return `${(t.airports?.from||[]).join(",")}>${(t.airports?.to||[]).join(",")}|${n}|${p.stops}|${p.avoidME?1:0}${p.weekendSaver?"|ws":""}`;};
+// Search parameters for /api/fares, minus the dates.
+export function searchParams(t,stops){
+  const p=flightPrefs(t); const out={from:t.airports.from,to:t.airports.to,stops};
+  if(stops!=="direct"&&p.avoidME) out.excludeConns=ME_HUBS;
+  if(p.weekendSaver){out.outboundTimes=WS_TIMES.outbound;out.returnTimes=WS_TIMES.ret;}
+  return out;
+}
+const dow=d=>parseYmd(d).getDay();
+// Nearest Friday: Tue-Thu move forward, Sat-Mon move back (a Thursday-evening flight becomes Friday).
+export const nearestFriday=d=>{const f=(5-dow(d)+7)%7;return addDays(d,f<=3?f:f-7);};
+export const mondayOnOrAfter=d=>addDays(d,(8-dow(d))%7);
+// The departure date the trip's own dates correspond to in a search (Friday when weekend-saver is on).
+export const searchDepart=t=>flightPrefs(t).weekendSaver&&t.depart?nearestFriday(t.depart):t.depart;
+// Length of the searched trip: Friday to Monday with weekend-saver, otherwise the trip's own nights (or flex nights).
+export function searchNights(t){
+  const days=(a,b)=>Math.round((parseYmd(b)-parseYmd(a))/864e5);
+  if(flightPrefs(t).weekendSaver) return days(nearestFriday(t.depart),mondayOnOrAfter(t.return));
+  return days(t.depart,t.return);
+}
+
 /* ---------- Flight date candidates ---------- */
-// Departures inside the trip's flexibility window on the same weekday as the planned departure,
-// keeping the same number of nights. Capped to `max` searches, always including the planned dates.
+// Departures inside the trip's flexibility window on the same weekday as the planned departure, keeping the
+// same number of nights. With weekend-saver: Friday departures and Monday returns instead.
+// Capped to `max` searches, always including the trip's own dates.
 export function candidateDates(t,max=8){
   if(!t.depart||!t.return) return [];
-  const f=t.flex||{}; const nights=Number(f.nights)||Math.round((parseYmd(t.return)-parseYmd(t.depart))/864e5);
-  const from=f.departFrom||addDays(t.depart,-7), to=f.departTo||addDays(t.depart,7);
-  const wd=parseYmd(t.depart).getDay(); let list=[];
-  for(const d of eachDay(from,to)) if(parseYmd(d).getDay()===wd) list.push(d);
-  if(!list.includes(t.depart)) list.push(t.depart);
+  const f=t.flex||{}; const ws=flightPrefs(t).weekendSaver;
+  let from=f.departFrom||addDays(t.depart,-7), to=f.departTo||addDays(t.depart,7);
+  const own=searchDepart(t);
+  const len=ws?searchNights(t):(Number(f.nights)||searchNights(t));
+  if(ws) from=addDays(from,-1);
+  const wd=dow(own); let list=[];
+  for(const d of eachDay(from,to)) if(dow(d)===wd) list.push(d);
+  if(!list.includes(own)) list.push(own);
   list.sort();
   if(list.length>max){
-    const keep=new Set([t.depart]); const step=(list.length-1)/(max-1);
+    const keep=new Set([own]); const step=(list.length-1)/(max-1);
     for(let i=0;keep.size<max&&i<max;i++) keep.add(list[Math.round(i*step)]);
     list=list.filter(d=>keep.has(d));
   }
-  return list.map(d=>({depart:d,return:addDays(d,nights)}));
+  return list.map(d=>({depart:d,return:addDays(d,len)}));
 }
-// Move a whole trip (travel dates and leave blocks) by `delta` days.
 export function shiftTrip(t,delta){
   const s=d=>d?addDays(d,delta):d;
   return {...t,depart:s(t.depart),return:s(t.return),blocks:(t.blocks||[]).map(b=>({...b,start:s(b.start),end:s(b.end)}))};
+}
+// Move a trip to a searched option. Normal: shift everything by the difference.
+// Weekend-saver: leave blocks move by whole weeks and are clipped to the days between the Friday departure and
+// the Monday-morning return, because both of those days are worked.
+export function moveTrip(t,depart,ret){
+  if(!flightPrefs(t).weekendSaver) return shiftTrip(t,Math.round((parseYmd(depart)-parseYmd(t.depart))/864e5));
+  const wk=Math.round((parseYmd(depart)-parseYmd(nearestFriday(t.depart)))/864e5/7)*7;
+  const lo=addDays(depart,1), hi=addDays(ret,-1);
+  const blocks=(t.blocks||[]).map(b=>({...b,start:addDays(b.start,wk),end:addDays(b.end,wk)}))
+    .map(b=>({...b,start:b.start<lo?lo:b.start,end:b.end>hi?hi:b.end})).filter(b=>b.start<=b.end);
+  return {...t,depart,return:ret,blocks};
+}
+
+/* ---------- Scorer ----------
+   Ranks searched options by total cost: fare + leave it uses + stops. A vacation day is valued at €120,
+   a work-from-India day at €40 (both budgets are limited), each stop at €35. Lowest score wins. */
+export const SCORE={vacation:120,yearEnd:120,wfi:40,stop:35};
+export function scoreOptions(t,rows){
+  const base=tripCounts(t,null);
+  return rows.filter(r=>r.price!=null).map(r=>{
+    const m=moveTrip(t,r.depart,r.return); const c=tripCounts(m,null);
+    const leave={vacation:c.vacation-base.vacation,yearEnd:c.yearEnd-base.yearEnd,wfi:c.wfi-base.wfi};
+    const score=r.price+leave.vacation*SCORE.vacation+leave.yearEnd*SCORE.yearEnd+leave.wfi*SCORE.wfi+(r.stops||0)*SCORE.stop;
+    return {...r,leave,score:Math.round(score)};
+  }).sort((a,b)=>a.score-b.score);
 }
 
 /* ---------- When to book ----------

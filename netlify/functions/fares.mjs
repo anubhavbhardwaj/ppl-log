@@ -1,6 +1,6 @@
 /* Flight prices via SerpApi (Google Flights). The API key never leaves the server.
    POST /api/fares   { from:["MUC"], to:["FCO","CIA"], depart:"2027-01-30", return:"2027-02-01", adults?:1,
-                       stops?:"any"|"direct"|"max1", excludeConns?:["DXB","DOH"] }
+                       stops?:"any"|"direct"|"max1", excludeConns?:["DXB","DOH"], outboundTimes?:"14,23", returnTimes?:"0,23,0,8" }
                      -> { price, currency, airline, stops, via, duration, fromAirport, toAirport, departTime, url, level, typical }
    GET  /api/fares   -> { searchesLeft, searchesPerMonth, thisMonth }  (account info, free to call)
    Every request must carry a Firebase ID token for this project: Authorization: Bearer <token>.
@@ -63,10 +63,13 @@ function cheapest(data,{maxStops=Infinity,exclude=[]}={}){
     duration:f.total_duration||null,fromAirport:first.departure_airport?.id||null,toAirport:last.arrival_airport?.id||null,
     departTime:first.departure_airport?.time||null,level:pi.price_level||null,typical:pi.typical_price_range||null,hist:histStats(pi.price_history)};
 }
-export async function searchFare({from,to,depart,ret,adults,stops="any",excludeConns=[]},key,fetchImpl=fetch){
+const TIMES=/^\d{1,2},\d{1,2}(,\d{1,2},\d{1,2})?$/;
+export async function searchFare({from,to,depart,ret,adults,stops="any",excludeConns=[],outboundTimes,returnTimes},key,fetchImpl=fetch){
   const p={engine:"google_flights",departure_id:from.join(","),arrival_id:to.join(","),outbound_date:depart,return_date:ret,
     type:"1",currency:"EUR",gl:"de",hl:"en",adults:String(adults||1),stops:STOPS[stops]||"0"};
   if(excludeConns.length&&stops!=="direct") p.exclude_conns=excludeConns.join(",");
+  if(outboundTimes&&TIMES.test(outboundTimes)) p.outbound_times=outboundTimes;
+  if(returnTimes&&TIMES.test(returnTimes)) p.return_times=returnTimes;
   const q=new URLSearchParams({...p,api_key:key});
   const r=await fetchImpl("https://serpapi.com/search.json?"+q);
   const data=await r.json().catch(()=>({}));
@@ -98,7 +101,7 @@ export default async function handler(req,_ctx,fetchImpl=fetch){
   const adults=Math.min(4,Math.max(1,Number(b.adults)||1));
   const stops=STOPS[b.stops]?b.stops:"any";
   const excludeConns=[...new Set((b.excludeConns||[]).filter(x=>CODE.test(x)))].slice(0,40);
-  try{return json(200,await searchFare({from,to,depart:b.depart,ret:b.return,adults,stops,excludeConns},key,fetchImpl));}
+  try{return json(200,await searchFare({from,to,depart:b.depart,ret:b.return,adults,stops,excludeConns,outboundTimes:b.outboundTimes,returnTimes:b.returnTimes},key,fetchImpl));}
   catch(e){return json(502,{error:String(e.message||e).slice(0,200)});}
 }
 
