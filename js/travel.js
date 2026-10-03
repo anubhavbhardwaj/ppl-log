@@ -178,7 +178,8 @@ async function api(method,body,path="/api/fares"){
 }
 
 /* ---------- Recommendation: scorer + Groq ---------- */
-const ai={available:undefined,busy:null};
+const ai={available:undefined,busy:null,status:null};
+async function aiStatus(){try{ai.status=await api("GET",undefined,"/api/advise");}catch(e){ai.status={error:e.message};} bus.render();}
 const month=()=>todayStr().slice(0,7);
 function ranked(t){
   const f=S.fares[t.id]; if(!f||f.key!==fareKey(t)) return [];
@@ -204,7 +205,7 @@ async function askAI(id){
     const withAi={...S.fares[id],ai:{for:f.checkedAt,at:new Date().toISOString(),model:r.model,depart:pickRow.depart,return:pickRow.return,headline:r.headline,reasons:r.reasons}};
     S.fares[id]=withAi; await saveFares(id,withAi);
     if(r.usage) await bumpUsage(month(),{groqRequests:1,groqTokens:r.usage.total});
-  }catch(e){ if(e.status===501) ai.available=false; else toast(e.message||"AI advice failed"); }
+  }catch(e){ if(e.status===501){ai.available=false;aiStatus();} else toast(e.message||"AI advice failed"); }
   ai.busy=null; bus.render();
 }
 function recommendCard(t){
@@ -219,9 +220,17 @@ function recommendCard(t){
     ${aiOk&&f.ai.reasons&&f.ai.reasons.length?`<ul class="small bk-facts">${f.ai.reasons.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:""}
     ${aiOk&&pickRow!==top?`<p class="small muted" style="margin:6px 0 0">Lowest score: ${fmtDate(top.depart)}, ${eur(top.price)} (${fmtLeave(top.leave)}).</p>`:""}
     <div class="row" style="margin-top:10px">${isCur?`<span class="small muted">These are your trip's dates.</span>`:`<button class="btn sm primary" data-usefare="${t.id}|${pickRow.depart}|${pickRow.return}">Use these dates</button>`}
-      ${ai.busy===t.id?`<span class="small muted">Asking AI…</span>`:ai.available===false?`<span class="small muted">Add GROQ_API_KEY in Netlify for AI advice.</span>`:`<button class="btn sm ghost" data-askai="${t.id}">${aiOk?"Ask AI again":"Ask AI"}</button>`}</div>
+      ${ai.busy===t.id?`<span class="small muted">Asking AI…</span>`:`<button class="btn sm ghost" data-askai="${t.id}">${aiOk?"Ask AI again":"Ask AI"}</button>`}</div>
+    ${ai.available===false?`<p class="small" style="margin:8px 0 0;color:var(--warn)">${aiHelp()}</p>`:""}
     <details style="margin-top:6px"><summary>How options are scored</summary><p class="small muted" style="margin:6px 0 0">Fare + €${SCORE.vacation} per extra vacation day + €${SCORE.wfi} per extra WFI day + €${SCORE.stop} per stop. Days saved count in your favour. ${aiOk?`The AI (${esc(f.ai.model||"Groq")}) sees the same ranked list and your balances, and explains its pick.`:""}</p></details>
   </div>`;
+}
+function aiHelp(){
+  const st=ai.status;
+  if(!st) return "The AI function can't see GROQ_API_KEY. Checking…";
+  if(st.configured) return "The key is there now. Tap Ask AI again.";
+  const near=(st.similarNames||[]).filter(n=>n!=="GROQ_API_KEY");
+  return `The AI function can't see GROQ_API_KEY.${near.length?` It does see ${near.map(esc).join(", ")}: rename it to exactly GROQ_API_KEY.`:" In Netlify, check the variable's name and that its scopes include Functions, then trigger a new deploy."}`;
 }
 function usageCard(){
   const u=S.usage[month()]||{}; const j=S.jobs;
