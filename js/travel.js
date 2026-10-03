@@ -1,8 +1,8 @@
 /* Travel tab: leave balances and a compact trip list; each trip opens its own page with the booking timer,
    flight prices and details. Calendar, bridges, holidays and budget sit in collapsible sections. */
 import {$,esc,todayStr,addDays,daysBetween,fmtDate,eachDay,parseYmd,ls,toast,guard,UI,bus} from "./util.js";
-import {S,saveTrip,removeTrip,saveLeave,seedTrips,saveFares,idToken} from "./store.js";
-import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027,candidateDates,shiftTrip,bookingAdvice,bookingWindow} from "./leave.js";
+import {S,saveTrip,removeTrip,saveLeave,seedTrips,saveFares,idToken,bumpUsage} from "./store.js";
+import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027,candidateDates,shiftTrip,bookingAdvice,bookingWindow,flightPrefs,fareKey,searchParams,searchDepart,moveTrip,scoreOptions,SCORE} from "./leave.js";
 
 const KIND_PLATE={rome:"push",india:"legs",europe:"pull",other:"home"};
 const STATUS={idea:"Idea",planned:"Planned",booked:"Booked"};
@@ -36,7 +36,7 @@ function bookNudge(){
 }
 // Advice uses the last check's result for the trip's current dates, if that check still matches the trip.
 function advice(t){
-  const f=S.fares[t.id]; const row=f&&f.key===fareKey(t)?(f.results||[]).find(r=>r.depart===t.depart):null;
+  const f=S.fares[t.id]; const row=f&&f.key===fareKey(t)?(f.results||[]).find(r=>r.depart===searchDepart(t)):null;
   return bookingAdvice(t,row,f&&f.checkedAt,todayStr());
 }
 
@@ -64,6 +64,7 @@ export function renderTravel(){
     <details class="card"${UI.calOpen?" open":""} data-cal><summary>${y} calendar</summary>${legend()}<div class="months">${(()=>{const map=dayMap(S.trips);return Array.from({length:12},(_,m)=>monthGrid(y,m,map)).join("")})()}</div></details>
     <details class="card"><summary>Long weekends and bridges</summary>${bridgeList(y)}</details>
     <details class="card"><summary>Public holidays (Bavaria, Munich)</summary><ul class="list small" style="margin-top:8px">${[...holidays(y)].map(([d,n])=>`<li><span>${esc(n)}</span><span class="muted ${isWeekend(d)?"strike":""}">${fmtDate(d)}${isWeekend(d)?" · weekend":""}</span></li>`).join("")}</ul></details>
+    ${usageCard()}
     <details class="card"><summary>Leave budget</summary>${budgetForm(y)}<p class="small muted" style="margin:8px 0 0">Unused vacation only carries into ${y+1} as an extension of the year-end block: add it as a January block marked "carried over".</p></details>
   </div>`;
 }
@@ -89,6 +90,7 @@ function renderTripPage(t){
       <div class="chips">${kindChips(c)||`<span class="chip">No leave days</span>`}</div>
       <div class="row" style="margin-top:10px"><button class="btn sm" data-edittrip="${t.id}">Edit trip</button>${t.status==="planned"?`<button class="btn sm ghost" data-markbooked="${t.id}">Mark as booked</button>`:""}</div></div>
     ${bookingCard(t)}
+    ${recommendCard(t)}
     <div class="card"><div class="label">Flights</div>
       ${(a.from||[]).length?`<p class="small" style="margin:6px 0 8px">${esc((a.from||[]).join(", "))} → ${esc((a.to||[]).join(", ")||"?")}${f.departFrom&&f.departTo?`<br><span class="muted">Searching departures ${short(f.departFrom)} to ${short(f.departTo)}, ${plural(Number(f.nights)||nights||0,"night")}</span>`:""}</p>`:`<p class="small muted">Add airports in Edit trip to check prices.</p>`}
       ${fareSection(t)}</div>
@@ -100,11 +102,12 @@ function bookingCard(t){
   if(!a) return "";
   if(a.state==="booked") return `<div class="card"><div class="label">When to book</div><p style="margin:6px 0 0"><b>Booked.</b> <button class="linkbtn small" data-unbook="${t.id}">Mark as not booked</button></p></div>`;
   const total=daysBetween(a.open,a.close), into=Math.min(total,Math.max(0,daysBetween(a.open,todayStr())));
-  const f=S.fares[t.id]; const row=f&&f.key===fareKey(t)?(f.results||[]).find(r=>r.depart===t.depart):null;
+  const f=S.fares[t.id]; const row=f&&f.key===fareKey(t)?(f.results||[]).find(r=>r.depart===searchDepart(t)):null;
   const facts=[];
   if(row&&row.price!=null){
     facts.push(`Last check ${ago(f.checkedAt)}: <b>${eur(row.price)}</b> for your dates${row.level?`, <span class="lvl ${esc(row.level)}">${esc(row.level)}</span> for this route`:""}${row.typical?` (usually ${eur(row.typical[0])} to ${eur(row.typical[1])})`:""}.`);
     if(row.hist) facts.push(`Past ${row.hist.days} days: ${row.hist.change14>=5?`up ${row.hist.change14}% in the last 2 weeks`:row.hist.change14<=-5?`down ${-row.hist.change14}% in the last 2 weeks`:"roughly flat in the last 2 weeks"}, lowest ${eur(row.hist.min)}.`);
+    const tr=(f.track||[]).slice(-6); if(tr.length>1) facts.push(`Weekly checks: ${tr.map(x=>eur(x.p)).join(" → ")}.`);
   } else facts.push("No price check yet for these dates. Check prices to refine the timer.");
   const big=a.state==="early"?`<div class="bignum num">${a.days}</div><div class="small muted">days until the window opens on ${fmtDate(a.open)}</div>`
     :a.state==="window"?`<div class="bignum num">${a.days}</div><div class="small muted">days left to book, window closes ${fmtDate(a.close)}${a.rising&&a.fresh?" (shortened: prices rising)":""}</div>`
@@ -121,19 +124,15 @@ function bookingCard(t){
 
 /* ---------- Flight prices ---------- */
 const eur=n=>"€"+Math.round(n).toLocaleString();
-// Gulf and wider Middle East hubs. Excluded as layovers when "Avoid Middle East layovers" is on.
-const ME_HUBS=["DXB","DWC","AUH","SHJ","DOH","BAH","KWI","MCT","SLL","RUH","JED","DMM","MED","AMM","AQJ","TLV","BEY","BGW","BSR","EBL","ISU","IKA","THR","MHD","SYZ","DAM","CAI","HBE","SSH","HRG","ADE","SAH"];
 const STOP_LABEL={any:"Any stops",direct:"Direct only",both:"Compare both"};
 const STOP_TEXT={any:"Any stops",direct:"Direct only",both:"Direct vs with stops"};
-const prefs=t=>({stops:"any",avoidME:true,...(t.flights||{})});
+const prefs=flightPrefs;
 const searchesPer=t=>prefs(t).stops==="both"?2:1;
-const prefText=t=>{const p=prefs(t);return STOP_TEXT[p.stops]+(p.avoidME&&p.stops!=="direct"?" · no Middle East layovers":"");};
-const fareKey=t=>{const p=prefs(t);return `${(t.airports?.from||[]).join(",")}>${(t.airports?.to||[]).join(",")}|${t.depart&&t.return?daysBetween(t.depart,t.return):""}|${p.stops}|${p.avoidME?1:0}`;};
+const prefText=t=>{const p=prefs(t);return STOP_TEXT[p.stops]+(p.avoidME&&p.stops!=="direct"?" · no Middle East layovers":"")+(p.weekendSaver?" · weekend-saver: out Fri after 14:00, back Mon by 09:00":"");};
 const ago=iso=>{const d=Math.floor((Date.now()-new Date(iso))/864e5);return d<=0?"today":d===1?"yesterday":d+" days ago"};
 const fares={left:undefined,loading:false};
-function leaveDelta(t,delta){
-  if(!delta) return "";
-  const a=tripCounts(t,null), b=tripCounts(shiftTrip(t,delta),null);
+function leaveDelta(t,r){
+  const a=tripCounts(t,null), b=tripCounts(moveTrip(t,r.depart,r.return),null);
   const parts=["vacation","yearEnd","wfi"].map(k=>{const d=b[k]-a[k];return d?`${d>0?"+":"-"}${Math.abs(d)} ${k==="wfi"?"WFI":BLOCK_TYPES[k].toLowerCase()}`:""}).filter(Boolean);
   return parts.length?parts.join(", "):"same leave";
 }
@@ -150,32 +149,89 @@ function fareSection(t){
   const rows=[...f.results].sort((x,y)=>x.depart.localeCompare(y.depart));
   const priced=rows.filter(r=>r.price!=null);
   const best=priced.reduce((x,y)=>!x||y.price<x.price?y:x,null);
-  const cur=rows.find(r=>r.depart===t.depart);
+  const own=searchDepart(t); const cur=rows.find(r=>r.depart===own);
   const mode=f.mode||"any";
   const directs=rows.filter(r=>r.direct&&r.direct.price!=null);
   const bestDirect=directs.reduce((x,y)=>!x||y.direct.price<x.direct.price?y:x,null);
   let head=mode==="direct"?"No direct flights found for these dates.":"No prices found for these dates.";
   if(best){
     head=`Cheapest <b>${eur(best.price)}</b> · ${short(best.depart)} to ${short(best.return)}`;
-    if(best.depart===t.depart) head+=` · your dates`;
+    if(best.depart===own) head+=best.depart===t.depart?` · your dates`:` · your dates, weekend-saver timing`;
     else if(cur&&cur.price!=null) head+=` · <span class="save">${eur(cur.price-best.price)} less than your dates</span>`;
   }
   const head2=mode!=="both"?"":bestDirect?`<p class="small" style="margin:2px 0 0">Cheapest direct <b>${eur(bestDirect.direct.price)}</b> · ${short(bestDirect.depart)} to ${short(bestDirect.return)}${best?` · ${eur(bestDirect.direct.price-best.price)} more than with stops`:""}</p>`:`<p class="small" style="margin:2px 0 0">No direct flights found for these dates.</p>`;
   return `<div class="fares">${filt}<p class="small" style="margin:0">${head}</p>${head2}
     ${f.key!==fareKey(t)?`<p class="small" style="margin:4px 0 0;color:var(--warn)">Airports, trip length or flight filters changed since this check.</p>`:""}
     <details${UI.openFares.has(t.id)?" open":""} data-farelist="${t.id}"><summary>${plural(rows.length,"date")} checked</summary>
-    <ul class="list fare-list">${rows.map(r=>{const isCur=r.depart===t.depart;const delta=daysBetween(t.depart,r.depart);
-      return `<li class="${best&&r===best?"best":""}"><div><b>${short(r.depart)} to ${short(r.return)}</b><br><span class="small muted">${r.price==null?"no flights found":[r.fromAirport&&r.toAirport?`${r.fromAirport} → ${r.toAirport}`:"",r.airline,r.stops===0?"direct":r.stops!=null?plural(r.stops,"stop")+((r.via||[]).length?" via "+r.via.join(", "):""):""].filter(Boolean).map(esc).join(" · ")}</span>${isCur?"":`<br><span class="small ldelta">${leaveDelta(t,delta)}</span>`}</div>
+    <ul class="list fare-list">${rows.map(r=>{const isCur=r.depart===t.depart&&r.return===t.return;
+      return `<li class="${best&&r===best?"best":""}"><div><b>${short(r.depart)} to ${short(r.return)}</b><br><span class="small muted">${r.price==null?"no flights found":[r.fromAirport&&r.toAirport?`${r.fromAirport} → ${r.toAirport}`:"",r.airline,r.stops===0?"direct":r.stops!=null?plural(r.stops,"stop")+((r.via||[]).length?" via "+r.via.join(", "):""):""].filter(Boolean).map(esc).join(" · ")}</span>${isCur?"":`<br><span class="small ldelta">${leaveDelta(t,r)}</span>`}</div>
         <div class="fare-r"><b class="num">${r.price==null?"–":eur(r.price)}</b>${mode==="both"&&r.stops!==0?`<span class="small muted num">${r.direct&&r.direct.price!=null?"direct "+eur(r.direct.price):"no direct"}</span>`:""}${r.level?`<span class="lvl ${esc(r.level)}">${esc(r.level)}</span>`:""}
-        <span class="row" style="gap:8px;justify-content:flex-end">${r.url?`<a class="small" href="${esc(r.url)}" target="_blank" rel="noopener">Google Flights</a>`:""}${isCur?`<span class="small muted">your dates</span>`:r.price!=null?`<button class="linkbtn small" data-usefare="${t.id}|${r.depart}">Use</button>`:""}</span></div></li>`;}).join("")}</ul></details>
+        <span class="row" style="gap:8px;justify-content:flex-end">${r.url?`<a class="small" href="${esc(r.url)}" target="_blank" rel="noopener">Google Flights</a>`:""}${isCur?`<span class="small muted">your dates</span>`:r.price!=null?`<button class="linkbtn small" data-usefare="${t.id}|${r.depart}|${r.return}">Use</button>`:""}</span></div></li>`;}).join("")}</ul></details>
     <div class="spread" style="margin-top:6px"><span class="small muted">Checked ${ago(f.checkedAt)}${fares.left!=null?` · ${fares.left} searches left this month`:""}</span>${btn("Check again")}</div></div>`;
 }
-async function api(method,body){
+async function api(method,body,path="/api/fares"){
   const token=await idToken();
-  const r=await fetch("/api/fares",{method,headers:{authorization:"Bearer "+token,...(body?{"content-type":"application/json"}:{})},body:body?JSON.stringify(body):undefined});
+  const r=await fetch(path,{method,headers:{authorization:"Bearer "+token,...(body?{"content-type":"application/json"}:{})},body:body?JSON.stringify(body):undefined});
   const j=await r.json().catch(()=>({error:"Flight search isn't available (HTTP "+r.status+")."}));
-  if(!r.ok) throw new Error(j.error||"HTTP "+r.status);
+  if(!r.ok) throw Object.assign(new Error(j.error||"HTTP "+r.status),{status:r.status});
   return j;
+}
+
+/* ---------- Recommendation: scorer + Groq ---------- */
+const ai={available:undefined,busy:null};
+const month=()=>todayStr().slice(0,7);
+function ranked(t){
+  const f=S.fares[t.id]; if(!f||f.key!==fareKey(t)) return [];
+  return scoreOptions(t,f.results||[]);
+}
+const fmtLeave=l=>{const p=["vacation","yearEnd","wfi"].filter(k=>l[k]).map(k=>`${l[k]>0?"+":"-"}${Math.abs(l[k])} ${k==="wfi"?"WFI":BLOCK_TYPES[k].toLowerCase()}`);return p.length?p.join(", "):"same leave";};
+function aiPayload(t,opts,pick){
+  const y=Number(t.depart.slice(0,4)); const b=balances(S.trips,S.leave,y); const p=prefs(t);
+  return {trip:{title:t.title,kind:t.kind,depart:t.depart,return:t.return,leaveNow:tripCounts(t,null),note:t.note||""},
+    prefs:{stops:p.stops,avoidME:p.avoidME,weekendSaver:p.weekendSaver},
+    balances:{vacationLeft:b.flexible.left,yearEndLeft:b.yearEnd.left,wfiLeft:b.wfi.left},scorerPick:pick,
+    options:opts.map((r,i)=>({i,depart:fmtDate(r.depart),return:fmtDate(r.return),price:r.price,stops:r.stops,via:r.via||[],airline:r.airline||"",
+      departTime:r.departTime||"",directPrice:r.direct?r.direct.price:null,priceLevel:r.level||"",leaveChange:r.leave,score:r.score,isCurrentDates:r.depart===t.depart&&r.return===t.return}))};
+}
+async function askAI(id){
+  const t=S.trips.find(x=>x.id===id); const f=S.fares[id]; if(!t||!f||ai.busy) return;
+  const opts=ranked(t).slice(0,8); if(!opts.length) return;
+  ai.busy=id; bus.render();
+  try{
+    const r=await api("POST",aiPayload(t,opts,0),"/api/advise");
+    ai.available=true;
+    const pickRow=opts[r.pick]||opts[0];
+    const withAi={...S.fares[id],ai:{for:f.checkedAt,at:new Date().toISOString(),model:r.model,depart:pickRow.depart,return:pickRow.return,headline:r.headline,reasons:r.reasons}};
+    S.fares[id]=withAi; await saveFares(id,withAi);
+    if(r.usage) await bumpUsage(month(),{groqRequests:1,groqTokens:r.usage.total});
+  }catch(e){ if(e.status===501) ai.available=false; else toast(e.message||"AI advice failed"); }
+  ai.busy=null; bus.render();
+}
+function recommendCard(t){
+  const opts=ranked(t); if(!opts.length) return "";
+  const f=S.fares[t.id]; const top=opts[0];
+  const aiOk=f.ai&&f.ai.for===f.checkedAt; const pickRow=aiOk?opts.find(r=>r.depart===f.ai.depart)||top:top;
+  const isCur=pickRow.depart===t.depart&&pickRow.return===t.return;
+  const line=r=>`<b>${fmtDate(r.depart)} to ${fmtDate(r.return)}</b> · <b class="num">${eur(r.price)}</b><br><span class="small muted">${[r.airline,r.stops===0?"direct":plural(r.stops||0,"stop")+((r.via||[]).length?" via "+r.via.join(", "):"")].filter(Boolean).map(esc).join(" · ")} · ${fmtLeave(r.leave)}</span>`;
+  return `<div class="card reco"><div class="spread"><div class="label">Best option</div><span class="small muted">${aiOk?"AI pick":"Scored"}</span></div>
+    <p style="margin:6px 0 0">${line(pickRow)}</p>
+    ${aiOk&&f.ai.headline?`<p class="small" style="margin:8px 0 0">${esc(f.ai.headline)}</p>`:""}
+    ${aiOk&&f.ai.reasons&&f.ai.reasons.length?`<ul class="small bk-facts">${f.ai.reasons.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:""}
+    ${aiOk&&pickRow!==top?`<p class="small muted" style="margin:6px 0 0">Lowest score: ${fmtDate(top.depart)}, ${eur(top.price)} (${fmtLeave(top.leave)}).</p>`:""}
+    <div class="row" style="margin-top:10px">${isCur?`<span class="small muted">These are your trip's dates.</span>`:`<button class="btn sm primary" data-usefare="${t.id}|${pickRow.depart}|${pickRow.return}">Use these dates</button>`}
+      ${ai.busy===t.id?`<span class="small muted">Asking AI…</span>`:ai.available===false?`<span class="small muted">Add GROQ_API_KEY in Netlify for AI advice.</span>`:`<button class="btn sm ghost" data-askai="${t.id}">${aiOk?"Ask AI again":"Ask AI"}</button>`}</div>
+    <details style="margin-top:6px"><summary>How options are scored</summary><p class="small muted" style="margin:6px 0 0">Fare + €${SCORE.vacation} per extra vacation day + €${SCORE.wfi} per extra WFI day + €${SCORE.stop} per stop. Days saved count in your favour. ${aiOk?`The AI (${esc(f.ai.model||"Groq")}) sees the same ranked list and your balances, and explains its pick.`:""}</p></details>
+  </div>`;
+}
+function usageCard(){
+  const u=S.usage[month()]||{}; const j=S.jobs;
+  return `<details class="card" data-usage><summary>Usage this month</summary><ul class="list small" style="margin-top:8px">
+    <li><span>SerpApi searches left</span><span class="num">${fares.left==null?(fares.loading?"…":"–"):fares.left}</span></li>
+    <li><span>Groq AI requests</span><span class="num">${u.groqRequests||0}</span></li>
+    <li><span>Groq tokens</span><span class="num">${(u.groqTokens||0).toLocaleString()}</span></li>
+    <li><span>Weekly price check</span><span class="num">${j&&j.weeklyAt?ago(j.weeklyAt)+` · ${plural(j.searches||0,"search")}`:"not run yet (Mondays)"}</span></li></ul>
+    ${j&&(j.checked||[]).length?`<p class="small muted" style="margin:6px 0 0">Last run: ${(j.checked||[]).map(esc).join("; ")}</p>`:""}
+    <p class="small muted" style="margin:6px 0 0">Free limits: SerpApi 250 searches a month; Groq 1,000 requests and 200,000 tokens a day.</p></details>`;
 }
 async function refreshLeft(){
   if(fares.loading) return; fares.loading=true;
@@ -185,19 +241,17 @@ async function refreshLeft(){
 async function checkPrices(id){
   const t=S.trips.find(x=>x.id===id); if(!t||UI.fareRun) return;
   const cands=candidateDates(t); const p=prefs(t); const total=cands.length*searchesPer(t);
-  const exclude=p.avoidME?ME_HUBS:[];
   try{const a=await api("GET");fares.left=a.searchesLeft;}catch(e){toast(e.message);return;}
   if(fares.left!=null&&fares.left<total){toast(fares.left===1?"Only 1 search left this month":`Only ${fares.left} searches left this month`);bus.render();return;}
   UI.fareRun={id,done:0,total}; bus.render();
-  const base={from:t.airports.from,to:t.airports.to};
-  const step=async body=>{const r=await api("POST",{...base,...body});UI.fareRun.done++;bus.render();return r;};
+  const step=async body=>{const r=await api("POST",{...searchParams(t,body.stops),...body});UI.fareRun.done++;bus.render();return r;};
   const results=[]; let err=null;
   for(const c of cands){
     const dates={depart:c.depart,return:c.return};
     try{
       if(p.stops==="direct") results.push({...c,...await step({...dates,stops:"direct"})});
       else{
-        const any=await step({...dates,stops:"any",excludeConns:exclude});
+        const any=await step({...dates,stops:"any"});
         const row={...c,...any};
         if(p.stops==="both"){
           if(any.price!=null&&any.stops===0){row.direct={price:any.price,airline:any.airline,url:any.url};UI.fareRun.total--;bus.render();}
@@ -207,10 +261,14 @@ async function checkPrices(id){
       }
     }catch(e){err=e;break;}
   }
-  try{if(results.length) await saveFares(id,{checkedAt:new Date().toISOString(),key:fareKey(t),mode:p.stops,avoidME:p.avoidME,results});}catch(e){err=err||e;}
+  const prev=S.fares[id]; const ownRow=results.find(r=>r.depart===searchDepart(t));
+  const track=(prev&&prev.key===fareKey(t)&&Array.isArray(prev.track)?prev.track:[]).concat(ownRow&&ownRow.price!=null?[{d:todayStr(),p:ownRow.price}]:[]).slice(-30);
+  const doc={checkedAt:new Date().toISOString(),key:fareKey(t),mode:p.stops,avoidME:p.avoidME,results,track};
+  try{if(results.length){S.fares[id]=doc;await saveFares(id,doc);}}catch(e){err=err||e;}
   UI.fareRun=null; UI.openFares.add(id);
   if(err) toast(err.message||"Price check failed"); else toast("Prices updated");
   refreshLeft();
+  if(results.length&&!err&&ai.available!==false) askAI(id);
 }
 function legend(){
   return `<div class="legend small">${[["vacation","Vacation"],["yearEnd","Year-end"],["wfi","WFI"],["intrip","Trip, no leave"],["hol","Holiday"]].map(([k,l])=>`<span><i class="cd ${k}"></i>${l}</span>`).join("")}</div>`;
@@ -277,6 +335,7 @@ function renderEditor(){
       <div class="grid2"><label><span class="label">Nights</span><input class="field num" type="number" min="1" inputmode="numeric" data-f="flex.nights" value="${esc(f.nights)}"></label></div>
       <div class="grid2"><label><span class="label">Stops</span><select class="field" data-f="flights.stops">${Object.entries(STOP_LABEL).map(([k,l])=>`<option value="${k}"${prefs(t).stops===k?" selected":""}>${l}</option>`).join("")}</select></label>
         <label class="check" style="align-self:end;padding-bottom:10px"><input type="checkbox" data-f="flights.avoidME"${prefs(t).avoidME?" checked":""}><span class="small"><b>Avoid Middle East layovers</b></span></label></div>
+      <label class="check"><input type="checkbox" data-f="flights.weekendSaver"${prefs(t).weekendSaver?" checked":""}><span class="small"><b>Weekend-saver</b><br><span class="muted">Fly out Friday after 14:00, land back in Munich Monday by 09:00. Friday and Monday stay workdays, so they cost no leave.</span></span></label>
       <p class="small muted" style="margin:0">Searches departures in this window and suggests cheaper dates. ${prefs(t).stops==="both"?"Compare uses up to 2 searches per date. ":""}Avoiding layovers skips connections in the Gulf, Iran, Iraq, the Levant and Egypt; a flight can still pass over the region.</p>
     </div>
     <div class="card"><label><span class="label">Note</span><textarea rows="2" data-f="note">${esc(t.note)}</textarea></label></div>
@@ -326,8 +385,10 @@ export function bindTravel(app){
     await guard(saveLeave(y,bud));toast("Budget saved")});
   app.querySelectorAll("[data-checkfares]").forEach(b=>b.onclick=()=>checkPrices(b.dataset.checkfares));
   app.querySelectorAll("[data-farelist]").forEach(d=>d.ontoggle=()=>{if(!d.isConnected)return;d.open?UI.openFares.add(d.dataset.farelist):UI.openFares.delete(d.dataset.farelist)});
-  app.querySelectorAll("[data-usefare]").forEach(b=>b.onclick=async()=>{const [id,dep]=b.dataset.usefare.split("|");const t=S.trips.find(x=>x.id===id);if(!t)return;
-    const moved=shiftTrip(t,daysBetween(t.depart,dep));
+  app.querySelectorAll("[data-askai]").forEach(b=>b.onclick=()=>askAI(b.dataset.askai));
+  app.querySelectorAll("[data-usage]").forEach(d=>d.ontoggle=()=>{if(d.open&&fares.left===undefined)refreshLeft();});
+  app.querySelectorAll("[data-usefare]").forEach(b=>b.onclick=async()=>{const [id,dep,ret]=b.dataset.usefare.split("|");const t=S.trips.find(x=>x.id===id);if(!t)return;
+    const moved=moveTrip(t,dep,ret);
     await guard(saveTrip(moved));toast(`Moved to ${short(moved.depart)} to ${short(moved.return)}`)});
   if(UI.tab==="travel"&&UI.openTrip&&!UI.editTrip&&fares.left===undefined&&Object.keys(S.fares).length) refreshLeft();
   // editor

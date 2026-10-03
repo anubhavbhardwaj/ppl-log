@@ -14,6 +14,19 @@ Static site: plain HTML and ES modules, Firebase Auth (email + password) and Fir
 - **Travel**: leave balances per year and a compact trip list; each trip opens its own page with a
   "when to book" timer, flight prices and details. Calendar, bridges, holidays and budget are collapsible.
 
+## Weekend-saver, scorer and AI advice
+
+- Weekend-saver (per trip, default on for Rome and India): searches Friday departures from 14:00 and Monday
+  returns landing by 09:00 (SerpApi `outbound_times=14,23`, `return_times=0,23,0,8`). Moving a trip to such an
+  option keeps leave blocks between Friday and Monday, so those two days stay workdays.
+- Scorer (`scoreOptions` in `js/leave.js`): fare + €120 per extra vacation day + €40 per extra WFI day + €35 per stop.
+- AI (`netlify/functions/advise.mjs`, `/api/advise`): Groq free tier, `openai/gpt-oss-120b` (override with
+  `GROQ_MODEL`). Gets the ranked options, preferences and balances, returns a pick and reasons. Needs `GROQ_API_KEY`.
+  Without it the scorer's pick is shown. Usage is counted in `users/{uid}/usage/{YYYY-MM}`.
+- Weekly check (`netlify/functions/weekly-fares.mjs`, Mondays 06:00 UTC): re-checks each planned trip's own dates
+  when it is in or within 14 days of its booking window (max 10 searches, stops below 30 left). Needs
+  `FIREBASE_SERVICE_ACCOUNT` (service account JSON) and `SERPAPI_KEY`. Summary in `users/{uid}/meta/jobs`.
+
 ## When to book
 
 `bookingAdvice` in `js/leave.js`: short-haul Europe window 12 to 5 weeks before departure; long-haul 6 months
