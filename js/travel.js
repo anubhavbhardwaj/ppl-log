@@ -2,14 +2,14 @@
    flight prices and details. Calendar, bridges, holidays and budget sit in collapsible sections. */
 import {$,esc,todayStr,addDays,daysBetween,fmtDate,eachDay,parseYmd,ls,toast,guard,UI,bus} from "./util.js";
 import {S,saveTrip,removeTrip,saveLeave,seedTrips,saveFares,idToken,bumpUsage} from "./store.js";
-import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027,candidateDates,shiftTrip,bookingAdvice,bookingWindow,unchargedWorkdays,longHaul,BAG_FEE,PREMIUM_TOP,flightPrefs,fareKey,searchParams,searchDepart,moveTrip,scoreOptions,SCORE} from "./leave.js";
+import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027,candidateDates,shiftTrip,bookingAdvice,bookingWindow,unchargedWorkdays,mix2027,longHaul,BAG_FEE,PREMIUM_TOP,flightPrefs,fareKey,searchParams,searchDepart,moveTrip,scoreOptions,SCORE} from "./leave.js";
 
 const KIND_PLATE={rome:"push",india:"legs",europe:"pull",other:"home"};
 const STATUS={idea:"Idea",planned:"Planned",booked:"Booked"};
 const WDN=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const plural=(n,w)=>`${n} ${w}${n===1?"":"s"}`;
 const short=ds=>fmtDate(ds,{day:"numeric",month:"short"});
-const countText=c=>[c.vacation&&`${c.vacation} vacation`,c.yearEnd&&`${c.yearEnd} year-end`,c.wfi&&`${c.wfi} WFI`].filter(Boolean).join(" · ")||"No leave days";
+const countText=c=>[c.vacation&&`${c.vacation} vacation`,c.yearEnd&&`${c.yearEnd} year-end`,c.wfi&&`${c.wfi} work abroad`].filter(Boolean).join(" · ")||"No leave days";
 
 /* ---------- Today card ---------- */
 export function currentTrip(){return tripOn(S.trips,todayStr());}
@@ -55,10 +55,11 @@ export function renderTravel(){
   const ideaDays=bal.ideas.vacation+bal.ideas.yearEnd+bal.ideas.wfi;
   return `<div class="stack">
     <div class="spread"><h1>Travel</h1><div class="row yearpick"><button class="btn sm ghost" data-year="${y-1}" aria-label="Previous year">‹</button><b class="num">${y}</b><button class="btn sm ghost" data-year="${y+1}" aria-label="Next year">›</button></div></div>
-    <div class="tiles">${tile("Vacation",bal.flexible,`+${bal.budget.yearEnd} year-end`)}${tile("Year-end",bal.yearEnd)}${tile("WFI",bal.wfi)}</div>
+    <div class="tiles">${tile("Vacation",bal.flexible,`+${bal.budget.yearEnd} year-end`)}${tile("Year-end",bal.yearEnd)}${tile("Work abroad",bal.wfi)}</div>
     ${ideaDays?`<p class="small muted" style="margin:-4px 0 0">Ideas not yet counted: ${countText(bal.ideas)}.</p>`:""}
     ${probs.length?`<div class="card warn"><div class="label">Check these</div><ul class="small" style="margin:6px 0 0;padding-left:18px">${probs.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></div>`:""}
-    ${!trips.length?`<div class="card"><h3>No trips in ${y} yet</h3>${y===2027?`<p class="small muted">Load the plan we worked out: two Rome weekends in Jan and Feb, India in late May (2 weeks vacation + 1 week WFI) and India in December (10 WFI days + 6 year-end days).</p><button class="btn primary block" data-seed>Load my 2027 plan</button>`:`<p class="small muted">Add a trip to start counting leave for ${y}.</p>`}</div>`:""}
+    ${!trips.length?`<div class="card"><h3>No trips in ${y} yet</h3>${y===2027?`<p class="small muted">Load the plan we worked out: two Rome weekends in Jan and Feb, India in late May (2 weeks vacation + 1 week working from India) and India in December (10 work-abroad days + 6 year-end days).</p><button class="btn primary block" data-seed>Load my 2027 plan</button>`:`<p class="small muted">Add a trip to start counting leave for ${y}.</p>`}</div>`:""}
+    ${y===2027?mixCard():""}
     ${upcoming.length?`<div class="triplist">${upcoming.map(tripRow).join("")}</div>`:""}
     <button class="btn block" data-newtrip>+ Add trip</button>
     ${past.length?`<details class="card"><summary>Past trips (${past.length})</summary><div class="triplist" style="margin-top:8px">${past.map(tripRow).join("")}</div></details>`:""}
@@ -69,7 +70,19 @@ export function renderTravel(){
     <details class="card"><summary>Leave budget</summary>${budgetForm(y)}<p class="small muted" style="margin:8px 0 0">Unused vacation only carries into ${y+1} as an extension of the year-end block: add it as a January block marked "carried over".</p></details>
   </div>`;
 }
-const kindChips=c=>["vacation","yearEnd","wfi"].filter(k=>c[k]).map(k=>`<span class="chip ${k}">${c[k]} ${k==="wfi"?"WFI":BLOCK_TYPES[k].toLowerCase()}</span>`).join("");
+// Suggested 2027 mix: India December pays 5 days with vacation, the freed work-abroad days make January a Rome week.
+function mixCard(){
+  const m=mix2027(S.trips); if(!m) return "";
+  const row=(x,why)=>{const b=tripCounts(x.before,null), a=tripCounts(x.after,null);
+    return `<li><div><b>${esc(x.after.title)}</b><br><span class="small muted">${short(x.after.depart)} to ${short(x.after.return)} · ${esc(why)}</span></div>
+      <div class="small num" style="text-align:right">${countText(b)}<br><b>→ ${countText(a)}</b></div></li>`;};
+  return `<div class="card reco"><div class="label">Suggested: use work abroad in Rome</div>
+    <p class="small" style="margin:6px 0 8px">Work abroad now works in the EU too. Spend 5 reserve vacation days on India in December and use the freed work-abroad days for a full week in Rome.</p>
+    <ul class="list">${row(m.rome,"work Mon-Fri from Rome, weekends free")}${row(m.india,"5 days work abroad, then 5 vacation days")}</ul>
+    <p class="small muted" style="margin:8px 0 0">2027 after this: 14 vacation (10 left in reserve), 15 work abroad, 6 year-end. India summer and the February Rome weekend stay as they are. Ask HR for an A1 certificate before each work-abroad stay.</p>
+    <div class="row" style="margin-top:10px"><button class="btn sm primary" data-applymix>Apply to my trips</button></div></div>`;
+}
+const kindChips=c=>["vacation","yearEnd","wfi"].filter(k=>c[k]).map(k=>`<span class="chip ${k}">${c[k]} ${k==="wfi"?"work abroad":BLOCK_TYPES[k].toLowerCase()}</span>`).join("");
 function tripRow(t){
   const c=tripCounts(t,UI.travelYear); const a=advice(t);
   const nights=t.depart&&t.return?daysBetween(t.depart,t.return):null;
@@ -89,6 +102,7 @@ function renderTripPage(t){
       <h2 style="margin-top:6px;font-size:28px">${esc(t.title)}</h2>
       <p class="small" style="margin:4px 0 0">${t.depart?fmtDate(t.depart):"?"} to ${t.return?fmtDate(t.return):"?"}${nights!=null?` · ${plural(nights,"night")}`:""}</p>
       <div class="chips">${kindChips(c)||`<span class="chip">No leave days</span>`}</div>
+      ${c.wfi?`<p class="small muted" style="margin:6px 0 0">Work abroad: ask HR for an A1 certificate before you travel.</p>`:""}
       <div class="row" style="margin-top:10px"><button class="btn sm" data-edittrip="${t.id}">Edit trip</button>${t.status==="planned"?`<button class="btn sm ghost" data-markbooked="${t.id}">Mark as booked</button>`:""}</div></div>
     ${leaveGuard(t)}
     ${bookingCard(t)}
@@ -103,7 +117,7 @@ function leaveGuard(t){
   const days=unchargedWorkdays(t); if(!days.length) return "";
   return `<div class="card warn"><div class="label">Leave missing</div>
     <p class="small" style="margin:6px 0 0">${days.map(d=>esc(fmtDate(d))).join(", ")} ${days.length===1?"is a workday":"are workdays"} inside this trip with no leave booked.</p>
-    <div class="row" style="margin-top:8px"><button class="btn sm primary" data-chargevac="${t.id}">Charge as vacation</button><button class="btn sm ghost" data-edittrip="${t.id}">Edit trip</button></div></div>`;
+    <div class="row" style="margin-top:8px"><button class="btn sm primary" data-chargevac="${t.id}">Charge as vacation</button><button class="btn sm" data-chargevac="${t.id}" data-as="wfi">Work abroad</button><button class="btn sm ghost" data-edittrip="${t.id}">Edit trip</button></div></div>`;
 }
 function bookingCard(t){
   const a=advice(t);
@@ -144,7 +158,7 @@ const ago=iso=>{const d=Math.floor((Date.now()-new Date(iso))/864e5);return d<=0
 const fares={left:undefined,loading:false};
 function leaveDelta(t,r){
   const a=tripCounts(t,null), b=tripCounts(moveTrip(t,r.depart,r.return),null);
-  const parts=["vacation","yearEnd","wfi"].map(k=>{const d=b[k]-a[k];return d?`${d>0?"+":"-"}${Math.abs(d)} ${k==="wfi"?"WFI":BLOCK_TYPES[k].toLowerCase()}`:""}).filter(Boolean);
+  const parts=["vacation","yearEnd","wfi"].map(k=>{const d=b[k]-a[k];return d?`${d>0?"+":"-"}${Math.abs(d)} ${k==="wfi"?"work abroad":BLOCK_TYPES[k].toLowerCase()}`:""}).filter(Boolean);
   return parts.length?parts.join(", "):"same leave";
 }
 function fareSection(t){
@@ -196,7 +210,7 @@ function ranked(t){
   const f=S.fares[t.id]; if(!f||f.key!==fareKey(t)) return [];
   return scoreOptions(t,f.results||[]);
 }
-const fmtLeave=l=>{const p=["vacation","yearEnd","wfi"].filter(k=>l[k]).map(k=>`${l[k]>0?"+":"-"}${Math.abs(l[k])} ${k==="wfi"?"WFI":BLOCK_TYPES[k].toLowerCase()}`);return p.length?p.join(", "):"same leave";};
+const fmtLeave=l=>{const p=["vacation","yearEnd","wfi"].filter(k=>l[k]).map(k=>`${l[k]>0?"+":"-"}${Math.abs(l[k])} ${k==="wfi"?"work abroad":BLOCK_TYPES[k].toLowerCase()}`);return p.length?p.join(", "):"same leave";};
 function aiPayload(t,opts,pick){
   const y=Number(t.depart.slice(0,4)); const b=balances(S.trips,S.leave,y); const p=prefs(t);
   return {trip:{title:t.title,kind:t.kind,depart:t.depart,return:t.return,leaveNow:tripCounts(t,null),note:t.note||""},
@@ -233,7 +247,7 @@ function recommendCard(t){
     <div class="row" style="margin-top:10px">${isCur?`<span class="small muted">These are your trip's dates.</span>`:`<button class="btn sm primary" data-usefare="${t.id}|${pickRow.depart}|${pickRow.return}">Use these dates</button>`}
       ${ai.busy===t.id?`<span class="small muted">Asking AI…</span>`:`<button class="btn sm ghost" data-askai="${t.id}">${aiOk?"Ask AI again":"Ask AI"}</button>`}</div>
     ${ai.available===false?`<p class="small" style="margin:8px 0 0;color:var(--warn)">${aiHelp()}</p>`:""}
-    <details style="margin-top:6px"><summary>How options are scored</summary><p class="small muted" style="margin:6px 0 0">Fare including bags${prefs(t).comparePremium?` (premium economy counts €${Number(prefs(t).premiumBonus)||0} less, so it wins when it costs at most that much more)`:""} + €${SCORE.vacation} per extra vacation day + €${SCORE.wfi} per extra WFI day + €${SCORE.stop} per stop. Days saved count in your favour. ${aiOk?`The AI (${esc(f.ai.model||"Groq")}) sees the same ranked list and your balances, and explains its pick.`:""}</p></details>
+    <details style="margin-top:6px"><summary>How options are scored</summary><p class="small muted" style="margin:6px 0 0">Fare including bags${prefs(t).comparePremium?` (premium economy counts €${Number(prefs(t).premiumBonus)||0} less, so it wins when it costs at most that much more)`:""} + €${SCORE.vacation} per extra vacation day + €${SCORE.wfi} per extra work-abroad day + €${SCORE.stop} per stop. Days saved count in your favour. ${aiOk?`The AI (${esc(f.ai.model||"Groq")}) sees the same ranked list and your balances, and explains its pick.`:""}</p></details>
   </div>`;
 }
 function aiHelp(){
@@ -304,7 +318,7 @@ async function checkPrices(id){
   if(results.length&&!err&&ai.available!==false) askAI(id);
 }
 function legend(){
-  return `<div class="legend small">${[["vacation","Vacation"],["yearEnd","Year-end"],["wfi","WFI"],["intrip","Trip, no leave"],["hol","Holiday"]].map(([k,l])=>`<span><i class="cd ${k}"></i>${l}</span>`).join("")}</div>`;
+  return `<div class="legend small">${[["vacation","Vacation"],["yearEnd","Year-end"],["wfi","Work abroad"],["intrip","Trip, no leave"],["hol","Holiday"]].map(([k,l])=>`<span><i class="cd ${k}"></i>${l}</span>`).join("")}</div>`;
 }
 function monthGrid(y,m,map){
   const first=`${y}-${String(m+1).padStart(2,"0")}-01`;
@@ -326,7 +340,7 @@ function bridgeList(y){
 function budgetForm(y){
   const b=budgetFor(S.leave,y);
   const f=(k,l)=>`<label class="small"><span class="label">${l}</span><input class="field num" type="number" min="0" max="60" inputmode="numeric" id="bud-${k}" value="${b[k]}"></label>`;
-  return `<div class="grid3" style="margin-top:8px">${f("vacation","Vacation")}${f("yearEnd","Of which year-end")}${f("wfi","Work from India")}</div>
+  return `<div class="grid3" style="margin-top:8px">${f("vacation","Vacation")}${f("yearEnd","Of which year-end")}${f("wfi","Work abroad")}</div>
     <button class="btn sm" style="margin-top:8px" data-savebudget="${y}">Save budget</button>`;
 }
 
@@ -358,7 +372,7 @@ function renderEditor(){
     <div class="card stack"><div class="spread"><div class="label">Leave charged</div><span class="small"><b>${countText(c)}</b></span></div>
       ${t.blocks.map(blockRow).join("")||`<p class="small muted" style="margin:0">No leave blocks. Weekends and holidays inside the trip are free; add a block for the workdays you'll be away.</p>`}
       <div class="row">${t.depart&&t.return&&!t.blocks.length?`<button class="btn sm primary" data-autoblock>Charge trip workdays as vacation</button>`:""}<button class="btn sm" data-addblock>+ Add block</button></div>
-      <p class="small muted" style="margin:0">With this trip, ${y} leaves you ${after.flexible.left} vacation, ${after.yearEnd.left} year-end and ${after.wfi.left} WFI days.</p>
+      <p class="small muted" style="margin:0">With this trip, ${y} leaves you ${after.flexible.left} vacation, ${after.yearEnd.left} year-end and ${after.wfi.left} work-abroad days.</p>
     </div>
     <div class="card stack"><div class="label">Flights</div>
       <div class="grid2"><label><span class="label">From airports</span><input class="field" data-f="airports.from" value="${esc((a.from||[]).join(", "))}" placeholder="MUC, NUE"></label>
@@ -410,8 +424,11 @@ export function bindTravel(app){
   const setStatus=async(id,status,msg)=>{const t=S.trips.find(x=>x.id===id);if(!t)return;await guard(saveTrip({...t,status}));toast(msg)};
   app.querySelectorAll("[data-chargevac]").forEach(b=>b.onclick=async()=>{const t=S.trips.find(x=>x.id===b.dataset.chargevac);if(!t)return;
     const add=[];let cur=null;
-    for(const d of unchargedWorkdays(t)){ if(cur&&addDays(cur.end,1)===d) cur.end=d; else{ if(cur&&daysBetween(cur.end,d)<=3&&[...eachDay(addDays(cur.end,1),addDays(d,-1))].every(x=>!isWorkday(x))) cur.end=d; else{cur={type:"vacation",start:d,end:d};add.push(cur);} } }
-    await guard(saveTrip({...t,blocks:[...(t.blocks||[]),...add]}));toast(add.length===1&&add[0].start===add[0].end?`${fmtDate(add[0].start)} charged as vacation`:"Vacation added")});
+    const type=b.dataset.as==="wfi"?"wfi":"vacation";
+    for(const d of unchargedWorkdays(t)){ if(cur&&addDays(cur.end,1)===d) cur.end=d; else{ if(cur&&daysBetween(cur.end,d)<=3&&[...eachDay(addDays(cur.end,1),addDays(d,-1))].every(x=>!isWorkday(x))) cur.end=d; else{cur={type,start:d,end:d};add.push(cur);} } }
+    await guard(saveTrip({...t,blocks:[...(t.blocks||[]),...add]}));toast(type==="wfi"?"Booked as work abroad":add.length===1&&add[0].start===add[0].end?`${fmtDate(add[0].start)} charged as vacation`:"Vacation added")});
+  app.querySelectorAll("[data-applymix]").forEach(b=>b.onclick=async()=>{const m=mix2027(S.trips);if(!m)return;b.disabled=true;
+    try{await guard(saveTrip(m.rome.after));await guard(saveTrip(m.india.after));toast("2027 plan updated: Rome week added");}catch(e){b.disabled=false}});
   app.querySelectorAll("[data-markbooked]").forEach(b=>b.onclick=()=>setStatus(b.dataset.markbooked,"booked","Marked as booked"));
   app.querySelectorAll("[data-unbook]").forEach(b=>b.onclick=()=>setStatus(b.dataset.unbook,"planned","Back to planned"));
   app.querySelectorAll("[data-year]").forEach(b=>b.onclick=()=>{UI.travelYear=Number(b.dataset.year);ls.set("cad_year",UI.travelYear);render()});

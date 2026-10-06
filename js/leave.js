@@ -26,7 +26,7 @@ export const isWorkday=ds=>!isWeekend(ds)&&!holidayName(ds);
 /* ---------- Budgets and blocks ---------- */
 export const DEFAULT_BUDGET={vacation:30,wfi:15,yearEnd:6};
 export const budgetFor=(leave,y)=>({...DEFAULT_BUDGET,...((leave||{})[String(y)]||{})});
-export const BLOCK_TYPES={vacation:"Vacation",yearEnd:"Year-end",wfi:"Work from India"};
+export const BLOCK_TYPES={vacation:"Vacation",yearEnd:"Year-end",wfi:"Work abroad"}; // key stays "wfi"; work-from-abroad days, usable in India and in the EU
 export const KINDS={rome:"Rome",india:"India",europe:"Europe",other:"Other"};
 export const DEFAULT_AIRPORTS={rome:{from:["MUC","NUE","FMM"],to:["FCO","CIA"]},india:{from:["MUC"],to:["DEL"]},europe:{from:["MUC"],to:[]},other:{from:["MUC"],to:[]}};
 
@@ -86,7 +86,7 @@ export function problems(trips,leave,year){
   const bal=balances(trips,leave,year);
   if(bal.flexible.left<0) out.push(`Vacation is over budget by ${-bal.flexible.left} day${bal.flexible.left===-1?"":"s"}.`);
   if(bal.yearEnd.left<0) out.push(`Year-end leave is over budget by ${-bal.yearEnd.left}.`);
-  if(bal.wfi.left<0) out.push(`Work from India is over budget by ${-bal.wfi.left}.`);
+  if(bal.wfi.left<0) out.push(`Work abroad is over budget by ${-bal.wfi.left}.`);
   return [...new Set(out)];
 }
 const fmt=ds=>parseYmd(ds).toLocaleDateString(undefined,{day:"numeric",month:"short"});
@@ -235,7 +235,7 @@ export function unchargedWorkdays(t){
 /* ---------- Scorer ----------
    Ranks searched options by total cost: fare (including the estimated bag fee when a checked bag is needed and
    the fare has none; premium economy minus the "prefer premium" allowance) + leave it uses + stops. A vacation day is valued at €120,
-   a work-from-India day at €40 (both budgets are limited), each stop at €35. Lowest score wins. */
+   a work-abroad day at €40 (both budgets are limited), each stop at €35. Lowest score wins. */
 export const SCORE={vacation:120,yearEnd:120,wfi:40,stop:35};
 export function scoreOptions(t,rows){
   const base=tripCounts(t,null);
@@ -289,4 +289,33 @@ export function bookingAdvice(t,row,checkedAt,today){
     return {...base,state:"window",days:d,badge:`Book in ${d} d`,headline:`Book within ${d} day${d===1?"":"s"}`};
   }
   return {...base,state:"late",days:0,badge:"Book now",headline:"Book now: fares usually rise from here"};
+}
+
+/* ---------- Suggested 2027 mix (work abroad now also allowed in the EU) ----------
+   India summer unchanged (8 vacation + 5 work abroad). India December: 5 work abroad + 5 vacation + 6 year-end
+   instead of 10 work abroad. The freed 5 work-abroad days turn the January Rome weekend into a Rome week
+   (Sat 30 Jan to Sun 7 Feb, working Mon-Fri from Rome, 0 vacation). The February Rome weekend stays as it is.
+   Result: 14 vacation, 15 work abroad, 6 year-end. */
+export function mix2027(trips){
+  const y=t=>(t.depart||"").slice(0,4)==="2027";
+  const india=trips.filter(t=>y(t)&&t.kind==="india"&&t.depart>="2027-12-01").sort((a,b)=>a.depart.localeCompare(b.depart))[0];
+  const rome=trips.filter(t=>y(t)&&t.kind==="rome"&&t.depart<"2027-03-01"&&t.status!=="booked").sort((a,b)=>a.depart.localeCompare(b.depart))[0];
+  if(!india||!rome) return null;
+  const ic=tripCounts(india,null), rc=tripCounts(rome,null);
+  if(ic.wfi<10||rc.wfi>0) return null; // already applied or changed by hand
+  // India: first 5 workdays after departure as work abroad, then vacation up to the year-end block.
+  const ye=(india.blocks||[]).find(b=>b.type==="yearEnd");
+  const endWork=ye?addDays(ye.start,-1):india.return;
+  const days=[]; for(const d of eachDay(addDays(india.depart,1),endWork)) if(isWorkday(d)) days.push(d);
+  if(days.length<6) return null;
+  const wfa=days.slice(0,5), vac=days.slice(5);
+  const indiaNew={...india,blocks:[{type:"wfi",start:wfa[0],end:wfa[4]},{type:"vacation",start:vac[0],end:vac[vac.length-1]},...(ye?[ye]:[])],
+    note:(india.note?india.note+" ":"")+"Work abroad changed to 5 days, then 5 vacation days (work-abroad days moved to a Rome week)."};
+  // Rome: Saturday departure, the following Sunday back, Mon-Fri worked from Rome.
+  const sat=addDays(rome.depart,(6-parseYmd(rome.depart).getDay()+7)%7), sun=addDays(sat,8);
+  const mon=addDays(sat,2), fri=addDays(sat,6);
+  const romeNew={...rome,title:"Rome week"+((rome.title.match(/,\s*(.+)$/)||[])[1]?", "+rome.title.match(/,\s*(.+)$/)[1]:""),depart:sat,return:sun,
+    blocks:[{type:"wfi",start:mon,end:fri}],flex:{...(rome.flex||{}),departFrom:addDays(sat,-7),departTo:addDays(sat,7)},
+    note:"Rome week: work from Rome Monday to Friday, weekends free. 0 vacation days."};
+  return {india:{before:india,after:indiaNew},rome:{before:rome,after:romeNew}};
 }
