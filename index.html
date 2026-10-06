@@ -123,6 +123,11 @@ details summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13p
 @media (prefers-reduced-motion: no-preference){.btn,.cell{transition:transform .08s}.btn:active{transform:scale(.98)}}
 /* segmented control */
 .seg{display:grid;grid-template-columns:1fr 1fr;background:var(--surface-2);border-radius:10px;padding:3px;gap:3px}
+.seg.seg3{grid-template-columns:1fr 1fr 1fr}
+.sched li{padding:6px 0;border-bottom:1px solid var(--line);align-items:center}
+.sched li.today{background:var(--surface-2);border-radius:8px;padding:6px 8px}
+.sched li.rest b,.sched li.skip b{color:var(--muted)}
+.daysel{flex:none;max-width:44%;font-size:13px;padding:6px}
 .seg button{border:0;background:none;padding:8px;border-radius:8px;font-weight:700;color:var(--muted)}
 .seg button[aria-selected="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.12)}
 /* travel */

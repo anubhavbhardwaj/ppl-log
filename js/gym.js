@@ -76,13 +76,18 @@ function queue(n){const done=doneSeqs();const out=[];for(let s=nextSeq();s<TOTAL
 const addDay=(ds,n)=>{const d=parseYmd(ds);d.setDate(d.getDate()+n);return ymd(d)};
 // Plan for each day from today: done session, skipped day, trip, projected session, or an office-day activity.
 // Skipping a gym day doesn't consume a session, so everything moves to the next gym day.
+// Day overrides: "rest" (planned rest) and "skip" (missed) both move that day's session to the next gym day;
+// "train" makes an office or trip day a gym day. One override per date, stored as a log entry.
+const OVERRIDES=["skip","rest","train"];
+const overrideOf=L=>L.find(l=>OVERRIDES.includes(l.type));
 export function projection(days,tripOn){
   const q=queue(days); let i=0; const out=[]; const t=todayStr();
   for(let k=0;k<days;k++){
     const ds=addDay(t,k); const w=parseYmd(ds).getDay(); const L=logsOn(ds);
-    const g=L.find(l=>l.type==="gym"), sk=L.find(l=>l.type==="skip"), h=L.find(l=>l.type==="home");
+    const g=L.find(l=>l.type==="gym"), h=L.find(l=>l.type==="home"), ov=overrideOf(L);
     if(g){out.push({date:ds,kind:"done",seq:g.seq});continue;}
-    if(sk){out.push({date:ds,kind:"skip"});continue;}
+    if(ov&&(ov.type==="skip"||ov.type==="rest")){out.push({date:ds,kind:ov.type,ov});continue;}
+    if(ov&&ov.type==="train"&&i<q.length){out.push({date:ds,kind:"gym",seq:q[i++],extra:true,ov});continue;}
     if(tripOn&&tripOn(ds)){out.push({date:ds,kind:"trip",home:h});continue;}
     if(isGymDay(w)&&i<q.length){out.push({date:ds,kind:"gym",seq:q[i++]});continue;}
     out.push({date:ds,kind:"off",home:h});
@@ -142,19 +147,19 @@ export function weekStrip(tripOn){
   let html='<div class="week">';
   for(let i=0;i<7;i++){const d=new Date(mon);d.setDate(mon.getDate()+i);const ds=ymd(d);const w=d.getDay();
     const gym=isGymDay(w); const done=logsOn(ds);
-    const g=done.find(l=>l.type==="gym"); const h=done.find(l=>l.type==="home"); const sk=done.find(l=>l.type==="skip");
+    const g=done.find(l=>l.type==="gym"); const h=done.find(l=>l.type==="home"); const sk=done.find(l=>l.type==="skip"||l.type==="rest");
     let k=gym?"Gym":(w===2?"Run":w===3?"Home":"Easy"); let kind="";
     if(tripOn&&tripOn(ds)) k="Trip";
     const pr=proj.find(p=>p.date===ds);
     if(pr&&pr.kind==="gym"){const n=seqInfo(pr.seq);k=n.day.name.replace(" #","");kind=n.day.kind;}
-    if(sk){k="Skip";kind="";}
+    if(sk){k=sk.type==="rest"?"Rest":"Skip";kind="";}
     if(g){k=DAYS.find(x=>x.id===g.day)?.name.replace(" #","")||k;kind=DAYS.find(x=>x.id===g.day)?.kind||"";}
     html+=`<div class="dayc ${ds===todayStr()?"today":""} ${kind}"><div class="d">${WD[w]}</div><div class="k">${esc(k)}</div><div class="tick">${(g||h)?"✓":""}</div></div>`;}
   return html+"</div>";
 }
 export function gymToday(trip,tripOn){
   const next=nextSeq(); const wd=new Date().getDay(); const t=todayStr();
-  const doneToday=logsOn(t); const gymDone=doneToday.find(l=>l.type==="gym"); const homeDone=doneToday.find(l=>l.type==="home"); const skipped=doneToday.find(l=>l.type==="skip");
+  const doneToday=logsOn(t); const gymDone=doneToday.find(l=>l.type==="gym"); const homeDone=doneToday.find(l=>l.type==="home"); const ov=overrideOf(doneToday); const skipped=ov&&(ov.type==="skip"||ov.type==="rest")?ov:null; const trainToday=ov&&ov.type==="train";
   const ng=nextGymDate(tripOn); const ngName=ng?(ng.date===addDay(t,1)?"tomorrow":fmtDay(ng.date)):"your next gym day";
   if(next>=TOTAL) return `<div class="card hero"><div class="label">Program complete</div><h2>All ${TOTAL} sessions done</h2><p class="muted">That's all three phases. The sheet suggests running back through Phase 1 Week 1 next.</p></div>`;
   const n=seqInfo(next);
@@ -170,24 +175,25 @@ export function gymToday(trip,tripOn){
       ${bodyweight()&&sessionCalories(gymDone,bodyweight())?`<details style="margin-top:6px"><summary>How this is estimated</summary><p class="small muted" style="margin:6px 0 0">Body weight × session time × intensity (MET ${sessionCalories(gymDone,bodyweight()).met}). Intensity rises with the kg you lift per minute, from about 3.5 for light work to 6 for heavy, dense sessions. Treat it as a rough range, not an exact number.</p></details>`:""}
       <p class="muted small" style="margin:6px 0 0">Nice work. Next gym day: ${ngName}.</p></div>`+sessionCard("Up next · "+ngName,`<button class="btn ghost sm" data-preview="${next}">Preview exercises</button>`)+comingUp(tripOn);
   }
-  if(skipped) return `<div class="card hero"><div class="label">Skipped today</div><h2>Rest day</h2><p class="muted small">${n.day.name} · ${wk(n)} moves to ${ngName}, and the rest of the plan moves along with it.</p>
-    <div class="row" style="margin-top:8px"><button class="btn sm" data-unskip="${skipped.id}">Undo skip</button><button class="btn sm ghost" data-start="${next}">Train anyway</button></div></div>`+comingUp(tripOn);
-  if(trip) return renderOff(OFF.travel,"travel",homeDone,"Away · "+esc(trip.title))+upNext;
-  if(isGymDay(wd)){
+  if(skipped) return `<div class="card hero"><div class="label">${skipped.type==="rest"?"Rest day":"Skipped today"}</div><h2>${skipped.type==="rest"?"Recover today":"No gym today"}</h2><p class="muted small">${isGymDay(wd)||trainToday?`${n.day.name} · ${wk(n)} moves to ${ngName}, and the rest of the plan moves along with it.`:"No run or home session today."}</p>
+    <div class="row" style="margin-top:8px"><button class="btn sm" data-unskip="${skipped.id}">Undo</button><button class="btn sm ghost" data-start="${next}">Train anyway</button></div></div>`+comingUp(tripOn);
+  if(trip&&!trainToday) return renderOff(OFF.travel,"travel",homeDone,"Away · "+esc(trip.title))+upNext;
+  if(isGymDay(wd)||trainToday){
     const draft=ls.get("ppl_draft");
     return sessionCard("Today at the gym",`<button class="btn primary block" data-start="${next}">${draft&&draft.seq===next?"Resume workout":"Start workout"}</button>
-      <div class="row" style="margin-top:8px;justify-content:space-between"><button class="btn sm ghost" data-preview="${next}">Preview</button>${UI.confirm==="skip"?`<span class="row"><span class="small">Move ${n.day.name} to ${ngName}?</span><button class="btn sm primary" data-skip="${next}">Skip today</button><button class="btn sm" data-cancelconfirm>Keep</button></span>`:`<button class="btn sm" data-askskip>Skip today</button>`}</div>`)+comingUp(tripOn);
+      <div class="row" style="margin-top:8px;justify-content:space-between"><button class="btn sm ghost" data-preview="${next}">Preview</button>${UI.confirm==="skip"?`<span class="row"><span class="small">Move ${n.day.name} to ${ngName}?</span><button class="btn sm primary" data-dayset="${t}|rest">Rest day</button><button class="btn sm" data-dayset="${t}|skip">Skip</button><button class="btn sm ghost" data-cancelconfirm>Keep</button></span>`:`<button class="btn sm" data-askskip>Rest or skip today</button>`}</div>`)+comingUp(tripOn);
   }
   const key=offPlanFor(wd,n.day.kind);
-  return renderOff(OFF[key],key,homeDone)+upNext+comingUp(tripOn);
+  return renderOff(OFF[key],key,homeDone)+`<div class="row" style="justify-content:flex-end;margin-top:-4px"><button class="linkbtn small" data-dayset="${t}|rest">Make today a rest day</button></div>`+upNext+comingUp(tripOn);
 }
 const fmtDay=ds=>{const d=parseYmd(ds);return WD[d.getDay()]+" "+d.getDate()+" "+d.toLocaleDateString(undefined,{month:"short"});};
 function comingUp(tripOn){
-  const rows=projection(10,tripOn).filter(p=>p.date>todayStr()&&(p.kind==="gym"||p.kind==="trip"||p.kind==="skip")).slice(0,5);
+  const rows=projection(10,tripOn).filter(p=>p.date>todayStr()&&(p.kind==="gym"||p.kind==="trip"||p.kind==="skip"||p.kind==="rest")).slice(0,5);
   if(!rows.length) return "";
   return `<div class="card"><div class="label">Coming up</div><ul class="list small" style="margin-top:6px">${rows.map(p=>{
     if(p.kind==="gym"){const n=seqInfo(p.seq);return `<li><span>${fmtDay(p.date)}</span><span class="tag" style="font-size:14px"><span class="plate ${n.day.kind}"></span>${n.day.name} · ${wk(n)}</span></li>`;}
-    return `<li><span>${fmtDay(p.date)}</span><span class="muted">${p.kind==="trip"?"Trip":"Skipped"}</span></li>`;}).join("")}</ul></div>`;
+    return `<li><span>${fmtDay(p.date)}</span><span class="muted">${p.kind==="trip"?"Trip":p.kind==="rest"?"Rest day":"Skipped"}</span></li>`;}).join("")}</ul>
+    <button class="linkbtn small" style="margin-top:6px" data-gymview="schedule">Plan rest and skip days</button></div>`;
 }
 function renderOff(plan,key,done,label){
   return `<div class="card hero home"><div class="label">${label||"Office day"} · ${plan.mins}</div><h2>${plan.title}</h2>
@@ -200,9 +206,9 @@ function renderOff(plan,key,done,label){
 
 /* ---------- Gym tab: plan, preview, history ---------- */
 export function renderGym(){
-  const seg=`<div class="seg" role="tablist" aria-label="Gym views">${[["plan","Plan"],["history","History"]].map(([k,l])=>`<button role="tab" data-gymview="${k}" aria-selected="${UI.gymView===k}">${l}</button>`).join("")}</div>`;
+  const seg=`<div class="seg seg3" role="tablist" aria-label="Gym views">${[["plan","Plan"],["schedule","Schedule"],["history","History"]].map(([k,l])=>`<button role="tab" data-gymview="${k}" aria-selected="${UI.gymView===k}">${l}</button>`).join("")}</div>`;
   if(UI.gymView==="plan"&&UI.preview!=null) return renderPreview(UI.preview);
-  return `<div class="stack"><h1>Gym</h1>${seg}${UI.gymView==="history"?renderHistory():renderPlan()}</div>`;
+  return `<div class="stack"><h1>Gym</h1>${seg}${UI.gymView==="history"?renderHistory():UI.gymView==="schedule"?renderSchedule():renderPlan()}</div>`;
 }
 function renderPlan(){
   const next=nextSeq(); const done=doneSeqs(); const cur=seqInfo(next);
@@ -236,11 +242,33 @@ const altLinks=e=>e.opts.length>1?`<p class="small" style="margin:8px 0 0"><span
 function renderHistory(){
   return renderHistoryList()+bwForm(false);
 }
+/* ---------- Schedule: next 14 days, mark rest, skip or extra gym days ---------- */
+let tripOnRef=null; export const setTripOn=f=>{tripOnRef=f;};
+function renderSchedule(){
+  const t=todayStr(); const rows=projection(14,tripOnRef);
+  const label=p=>{
+    if(p.kind==="done"){const n=seqInfo(p.seq);return `<span class="tag"><span class="plate ${n.day.kind}"></span>${n.day.name} · ${wk(n)} ✓</span>`;}
+    if(p.kind==="gym"){const n=seqInfo(p.seq);return `<span class="tag"><span class="plate ${n.day.kind}"></span>${n.day.name} · ${wk(n)}</span>${p.extra?` <span class="small muted">extra gym day</span>`:""}`;}
+    if(p.kind==="rest") return `<b>Rest day</b>`;
+    if(p.kind==="skip") return `<b>Skip</b>`;
+    if(p.kind==="trip") return `<span class="muted">Trip · travel session</span>`;
+    const w=parseYmd(p.date).getDay(); return `<span class="muted">${w===2?"Easy run":w===3?"Home session":"Run or mobility"}</span>`;
+  };
+  const sel=p=>{
+    if(p.kind==="done") return "";
+    const cur=p.ov?p.ov.type:"auto"; const gymDay=isGymDay(parseYmd(p.date).getDay())&&p.kind!=="trip";
+    const opts=[["auto",gymDay?"Gym":(p.kind==="trip"?"Trip":"Office plan")],["rest","Rest day"],["skip","Skip"],...(gymDay?[]:[["train","Gym (extra)"]])];
+    return `<select class="daysel" data-daysel="${p.date}" aria-label="Plan for ${fmtDay(p.date)}">${opts.map(([v,l])=>`<option value="${v}"${cur===v?" selected":""}>${l}</option>`).join("")}</select>`;
+  };
+  return `<div class="card"><p class="small muted" style="margin:0 0 8px">Rest and skip both move that day's workout to the next gym day; everything after it moves along. "Gym (extra)" turns an office or trip day into a gym day.</p>
+    <ul class="list sched">${rows.map(p=>`<li class="${p.date===t?"today":""} ${p.kind}"><div><span class="small muted">${p.date===t?"Today":fmtDay(p.date)}</span><br>${label(p)}</div>${sel(p)}</li>`).join("")}</ul></div>`;
+}
 function renderHistoryList(){
-  if(!S.logs.length) return `<div class="card"><h3>Nothing logged yet</h3><p class="muted small">Finished workouts and office-day sessions appear here, newest first.</p></div>`;
-  return S.logs.map(l=>{
+  const logs=S.logs.filter(l=>l.date<=todayStr()&&l.type!=="train");
+  if(!logs.length) return `<div class="card"><h3>Nothing logged yet</h3><p class="muted small">Finished workouts and office-day sessions appear here, newest first.</p></div>`;
+  return logs.map(l=>{
     const dl=parseYmd(l.date).toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"});
-    if(l.type==="skip") return `<div class="card"><div class="spread"><span class="tag" style="color:var(--muted)">Skipped gym day</span><span class="small muted">${dl}</span></div>${delCtl(l)}</div>`;
+    if(l.type==="skip"||l.type==="rest") return `<div class="card"><div class="spread"><span class="tag" style="color:var(--muted)">${l.type==="rest"?"Rest day":"Skipped gym day"}</span><span class="small muted">${dl}</span></div>${delCtl(l)}</div>`;
     if(l.type==="home") return `<div class="card"><div class="spread"><span class="tag"><span class="plate home"></span>${esc(l.title)}</span><span class="small muted">${dl}</span></div>${l.note?`<p class="small muted" style="margin:6px 0 0">${esc(l.note)}</p>`:""}${delCtl(l)}</div>`;
     const n=seqInfo(l.seq); const open=UI.openLog===l.id;
     const vol=(l.exercises||[]).reduce((a,e)=>a+(e.sets||[]).reduce((b,s)=>b+(Number(s.kg)||0)*(Number(s.reps)||0),0),0);
@@ -269,6 +297,14 @@ export function bindGym(app){
   app.querySelectorAll("[data-savebw]").forEach(b=>b.onclick=async()=>{const v=Math.round(Number(($("#bw")?.value||"").replace(",","."))*10)/10;
     if(!(v>=30&&v<=250)){toast("Enter your weight in kg");return;}
     await guard(saveState({...S.state,bodyweight:v}));toast("Body weight saved")});
+  const setDay=async(ds,mode)=>{
+    const old=logsOn(ds).filter(l=>OVERRIDES.includes(l.type));
+    for(const o of old) await guard(removeLog(o.id));
+    if(mode&&mode!=="auto") await guard(addLog({type:mode,date:ds}));
+    UI.confirm=null; toast(mode==="rest"?"Rest day set":mode==="skip"?"Marked as skip":mode==="train"?"Extra gym day added":"Back to the normal plan");
+  };
+  app.querySelectorAll("[data-dayset]").forEach(b=>b.onclick=()=>{const [ds,m]=b.dataset.dayset.split("|");setDay(ds,m);});
+  app.querySelectorAll("[data-daysel]").forEach(s=>s.onchange=()=>setDay(s.dataset.daysel,s.value));
   app.querySelectorAll("[data-askskip]").forEach(b=>b.onclick=()=>{UI.confirm="skip";render()});
   app.querySelectorAll("[data-skip]").forEach(b=>b.onclick=async()=>{UI.confirm=null;await guard(addLog({type:"skip",date:todayStr(),seq:Number(b.dataset.skip)}));toast("Skipped. The plan moves one gym day.")});
   app.querySelectorAll("[data-unskip]").forEach(b=>b.onclick=async()=>{await guard(removeLog(b.dataset.unskip));toast("Skip undone")});

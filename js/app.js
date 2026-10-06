@@ -1,7 +1,7 @@
 /* Cadence: app shell. Tabs: Today, Gym, Travel. */
 import {$,esc,WD,ls,UI,bus} from "./util.js";
 import {S,initStore,login,logout} from "./store.js";
-import {gymToday,weekStrip,renderGym,bindGym,renderWorkout,bindWorkout} from "./gym.js";
+import {gymToday,weekStrip,renderGym,bindGym,renderWorkout,bindWorkout,setTripOn} from "./gym.js";
 import {travelToday,currentTrip,renderTravel,bindTravel} from "./travel.js";
 import {tripOn} from "./leave.js";
 
@@ -25,6 +25,7 @@ function render(){
   app.querySelectorAll("[data-installlater]").forEach(b=>b.onclick=()=>{ls.set("cad_install_later",Date.now());render();});
 }
 bus.render=render;
+setTripOn(ds=>tripOn(S.trips,ds));
 
 function renderToday(){
   const now=new Date();
@@ -33,7 +34,7 @@ function renderToday(){
     ${travelToday()}
     ${weekStrip(ds=>tripOn(S.trips,ds))}
     ${gymToday(currentTrip(),ds=>tripOn(S.trips,ds))}
-    <div class="card"><div class="label">Your week</div><p class="small muted" style="margin:6px 0 0">Gym on Mon, Fri, Sat and Sun, in program order. Tue easy run, Wed home session, Thu run or mobility depending on what Friday holds. On trip days the program waits and you get a travel session instead. Skip a gym day and everything moves to the next gym day.</p></div>
+    <div class="card"><div class="label">Your week</div><p class="small muted" style="margin:6px 0 0">Gym on Mon, Fri, Sat and Sun, in program order. Tue easy run, Wed home session, Thu run or mobility depending on what Friday holds. On trip days the program waits and you get a travel session instead. Rest or skip a day (Gym → Schedule) and everything moves to the next gym day.</p></div>
     ${installCard()}
     <p class="small muted" style="text-align:center">Signed in as ${esc(S.user?.email||"")} · <button class="linkbtn small" data-signout>Sign out</button></p>
   </div>`;

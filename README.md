@@ -84,7 +84,8 @@ and can avoid layovers at Middle East hubs (Gulf, Iran, Iraq, Levant, Egypt) via
 
 All data lives under `users/{uid}/`:
 - `meta/state`: `{ next }`, pointer (0-77) into program order; the next session is the first one at or after it that isn't logged.
-- Skipping a gym day logs `{ type: "skip", date }`; the session moves to the next gym day.
+- Day overrides (Gym → Schedule, next 14 days): `{ type: "rest" | "skip" | "train", date }`. Rest and skip move that
+  day's session to the next gym day; train makes an office or trip day a gym day.
 - `logs/*`: one document per finished gym or office-day session.
 - `trips/*`: `{ title, kind, status, depart, return, blocks: [{ type, start, end, carry? }], flex: { departFrom, departTo, nights }, airports: { from, to }, note }`.
   Block types are `vacation`, `yearEnd` and `wfi` (work abroad: India or another EU country, one shared budget). Only weekdays that aren't Bavarian public holidays are charged.
