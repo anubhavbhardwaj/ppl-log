@@ -87,7 +87,7 @@ All data lives under `users/{uid}/`:
 - Skipping a gym day logs `{ type: "skip", date }`; the session moves to the next gym day.
 - `logs/*`: one document per finished gym or office-day session.
 - `trips/*`: `{ title, kind, status, depart, return, blocks: [{ type, start, end, carry? }], flex: { departFrom, departTo, nights }, airports: { from, to }, note }`.
-  Block types are `vacation`, `yearEnd` and `wfi`. Only weekdays that aren't Bavarian public holidays are charged.
+  Block types are `vacation`, `yearEnd` and `wfi` (work abroad: India or another EU country, one shared budget). Only weekdays that aren't Bavarian public holidays are charged.
   `carry: true` charges a January block to the previous year (allowed only directly after the year-end block).
   Trips with status `idea` don't count against the balance.
 - `fares/{tripId}`: `{ checkedAt, key, results: [{ depart, return, price, airline, stops, fromAirport, toAirport, level, url }] }`.
