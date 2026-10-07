@@ -202,6 +202,23 @@ input[type=date].field{min-height:44px}
 .save{color:var(--good);font-weight:600}
 .ldelta{font-weight:600;color:var(--fg)}
 .card.install{border-color:var(--accent)}
+/* to-book list */
+.tblist{margin-top:10px;gap:0}
+.tblist li.tb{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-top:1px solid var(--line)}
+.tblist li.tb:first-child{border-top:0}
+.tbcheck{width:20px;height:20px;margin:1px 0 0;accent-color:var(--vac)}
+.tb-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.tb-main b{overflow-wrap:anywhere}
+.tb.done .tb-main b{color:var(--muted);text-decoration:line-through}
+.tbdue{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap;background:var(--surface-2);color:var(--muted)}
+.tbdue.overdue{background:var(--bad);color:#fff}.tbdue.today{background:var(--ye);color:#fff}.tbdue.soon{background:var(--ye-bg);color:var(--ye)}
+.tbform{border-top:1px solid var(--line);margin-top:10px;padding-top:10px}
+.tblist li.tbedit{display:block;padding:0}
+.tblist li.tbedit .tbform{margin-top:0}
+.chip.tbchip{color:var(--muted)}.chip.tbchip.urgent{background:var(--ye-bg);color:var(--ye)}
+.tbnudge.overdue{border-color:var(--bad)}.tbnudge.today,.tbnudge.soon{border-color:var(--ye)}
+.tbdot{width:14px;height:14px;border-radius:4px;flex:none;background:var(--ye)}
+.tbdot.overdue{background:var(--bad)}
 @media (max-width:380px){.tiles .big{font-size:28px}}
 </style>
 </head>

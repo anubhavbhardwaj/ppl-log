@@ -1,6 +1,7 @@
 /* Travel tab: leave balances and a compact trip list; each trip opens its own page with the booking timer,
    flight prices and details. Calendar, bridges, holidays and budget sit in collapsible sections. */
 import {$,esc,todayStr,addDays,daysBetween,fmtDate,eachDay,parseYmd,ls,toast,guard,UI,bus} from "./util.js";
+import {items as bookItems,toBookCard,toBookChip,toBookNudge,parseLines,parseCost,cleanLink,newItemId} from "./tobook.js";
 import {S,saveTrip,removeTrip,saveLeave,seedTrips,saveFares,idToken,bumpUsage} from "./store.js";
 import {holidays,holidayName,isWorkday,isWeekend,budgetFor,DEFAULT_BUDGET,BLOCK_TYPES,KINDS,DEFAULT_AIRPORTS,blockDays,tripCounts,balances,tripInYear,tripOn,dayMap,problems,bridges,draftPlan2027,candidateDates,shiftTrip,bookingAdvice,bookingWindow,unchargedWorkdays,mix2027,longHaul,BAG_FEE,PREMIUM_TOP,flightPrefs,fareKey,searchParams,searchDepart,moveTrip,scoreOptions,SCORE} from "./leave.js";
 
@@ -14,16 +15,16 @@ const countText=c=>[c.vacation&&`${c.vacation} vacation`,c.yearEnd&&`${c.yearEnd
 /* ---------- Today card ---------- */
 export function currentTrip(){return tripOn(S.trips,todayStr());}
 export function travelToday(){
-  const t=todayStr(); const cur=currentTrip();
+  const t=todayStr(); const cur=currentTrip(); const tb=toBookNudge(S.trips,t);
   if(cur){
     const day=daysBetween(cur.depart,t)+1, len=daysBetween(cur.depart,cur.return)+1;
     const m=dayMap([cur]).get(t); const what=m&&m.type?BLOCK_TYPES[m.type]:holidayName(t)||(isWeekend(t)?"Weekend":"Travel day");
-    return `<button class="card tripline ${cur.kind||"other"}" data-gotravel><span class="plate ${KIND_PLATE[cur.kind]||"home"}"></span><span><span class="label">Away · day ${day} of ${len}</span><br><b>${esc(cur.title)}</b> <span class="small muted">· today: ${esc(what)}</span></span></button>`;
+    return tb+`<button class="card tripline ${cur.kind||"other"}" data-gotravel><span class="plate ${KIND_PLATE[cur.kind]||"home"}"></span><span><span class="label">Away · day ${day} of ${len}</span><br><b>${esc(cur.title)}</b> <span class="small muted">· today: ${esc(what)}</span></span></button>`;
   }
   const next=S.trips.filter(x=>x.status!=="idea"&&x.depart>t).sort((a,b)=>a.depart.localeCompare(b.depart))[0];
-  if(!next) return bookNudge();
+  if(!next) return tb+bookNudge();
   const n=daysBetween(t,next.depart);
-  return bookNudge()+`<button class="card tripline" data-opentrip="${next.id}"><span class="plate ${KIND_PLATE[next.kind]||"home"}"></span><span><span class="label">Next trip · ${n===1?"tomorrow":"in "+n+" days"}</span><br><b>${esc(next.title)}</b> <span class="small muted">· ${short(next.depart)} to ${short(next.return)}</span></span></button>`;
+  return tb+bookNudge()+`<button class="card tripline" data-opentrip="${next.id}"><span class="plate ${KIND_PLATE[next.kind]||"home"}"></span><span><span class="label">Next trip · ${n===1?"tomorrow":"in "+n+" days"}</span><br><b>${esc(next.title)}</b> <span class="small muted">· ${short(next.depart)} to ${short(next.return)}</span></span></button>`;
 }
 
 // Most urgent "book now / book within N days" across planned trips, shown on Today.
@@ -89,7 +90,7 @@ function tripRow(t){
   return `<button class="triprow" data-opentrip="${t.id}">
     <span class="plate ${KIND_PLATE[t.kind]||"home"}"></span>
     <span class="tr-main"><b>${esc(t.title)}</b><span class="small muted">${t.depart?short(t.depart):"?"} to ${t.return?short(t.return):"?"}${nights!=null?` · ${plural(nights,"night")}`:""}${t.status==="idea"?" · idea":""}</span>
-      <span class="chips" style="margin-top:4px">${kindChips(c)}</span></span>
+      <span class="chips" style="margin-top:4px">${kindChips(c)}${toBookChip(t)}</span></span>
     ${a?`<span class="bk ${a.state}">${esc(a.badge)}</span>`:""}<span class="chev" aria-hidden="true">›</span></button>`;
 }
 
@@ -106,6 +107,7 @@ function renderTripPage(t){
       <div class="row" style="margin-top:10px"><button class="btn sm" data-edittrip="${t.id}">Edit trip</button>${t.status==="planned"?`<button class="btn sm ghost" data-markbooked="${t.id}">Mark as booked</button>`:""}</div></div>
     ${leaveGuard(t)}
     ${bookingCard(t)}
+    ${toBookCard(t)}
     ${recommendCard(t)}
     <div class="card"><div class="label">Flights</div>
       ${(a.from||[]).length?`<p class="small" style="margin:6px 0 8px">${esc((a.from||[]).join(", "))} → ${esc((a.to||[]).join(", ")||"?")}${f.departFrom&&f.departTo?`<br><span class="muted">Searching departures ${short(f.departFrom)} to ${short(f.departTo)}, same ${WDN[parseYmd(t.depart).getDay()]} to ${WDN[parseYmd(t.return).getDay()]} shape (${plural(nights||0,"night")})</span>`:""}</p>`:`<p class="small muted">Add airports in Edit trip to check prices.</p>`}
@@ -415,11 +417,55 @@ function onTripChange(t,path,prevKind){
   if(/^blocks\.\d+\.start$/.test(path)){const b=t.blocks[Number(path.split(".")[1])]; if(b.start&&(!b.end||b.end<b.start)) b.end=b.start; if(b.start.slice(5,7)!=="01") delete b.carry;}
 }
 
+/* ---------- To-book list ---------- */
+async function saveToBook(id,list){const t=S.trips.find(x=>x.id===id); if(!t) return; await guard(saveTrip({...t,toBook:list}));}
+const blankItem=()=>({what:"",for:"",by:"",cost:null,link:"",note:""});
+function bindToBook(app){
+  const render=()=>bus.render();
+  const split=v=>v.split("|");
+  app.querySelectorAll("[data-tbdone]").forEach(el=>el.onchange=async()=>{const [id,iid]=split(el.dataset.tbdone);const t=S.trips.find(x=>x.id===id);if(!t)return;
+    const done=el.checked;
+    try{await saveToBook(id,bookItems(t).map(x=>x.id===iid?{...x,done,doneAt:done?new Date().toISOString():null}:x));toast(done?"Marked as booked":"Back on the list");}catch(e){el.checked=!done;}});
+  app.querySelectorAll("[data-tbadd]").forEach(b=>b.onclick=()=>{UI.bookForm={tripId:b.dataset.tbadd,id:null,d:blankItem()};UI.bookPaste=null;UI.confirm=null;render();const w=document.getElementById("tb-what");if(w)w.focus();});
+  app.querySelectorAll("[data-tbedit]").forEach(b=>b.onclick=()=>{const [id,iid]=split(b.dataset.tbedit);const t=S.trips.find(x=>x.id===id);const x=t&&bookItems(t).find(y=>y.id===iid);if(!x)return;
+    UI.bookForm={tripId:id,id:iid,d:{...blankItem(),...x}};UI.bookPaste=null;UI.confirm=null;if(x.done)UI.bookDoneOpen=id;render();});
+  app.querySelectorAll("[data-tbpaste]").forEach(b=>b.onclick=()=>{UI.bookPaste=b.dataset.tbpaste;UI.bookForm=null;render();const a=document.getElementById("tb-paste");if(a){a.value=UI.bookPasteText||"";a.focus();}});
+  app.querySelectorAll("[data-tbcancel]").forEach(b=>b.onclick=()=>{UI.bookForm=null;UI.bookPaste=null;UI.confirm=null;render();});
+  app.querySelectorAll("[data-tbdoneopen]").forEach(d=>d.ontoggle=()=>{if(d.isConnected)UI.bookDoneOpen=d.open?d.dataset.tbdoneopen:null;});
+  // Keep typed values across re-renders (Firestore snapshots re-render the page).
+  const f=UI.bookForm;
+  if(f) ["what","for","by","cost","link","note"].forEach(k=>{const el=document.getElementById("tb-"+k);if(el)el.oninput=el.onchange=()=>{f.d[k]=el.value;};});
+  const pa=document.getElementById("tb-paste"); if(pa){if(UI.bookPasteText&&!pa.value)pa.value=UI.bookPasteText;pa.oninput=()=>{UI.bookPasteText=pa.value;};}
+  app.querySelectorAll("[data-tbsave]").forEach(b=>b.onclick=async()=>{const id=b.dataset.tbsave;const t=S.trips.find(x=>x.id===id);if(!t||!f)return;
+    const d=f.d; const what=String(d.what||"").trim();
+    if(!what){toast("Say what to book");return;}
+    const cost=parseCost(d.cost); if(cost===undefined){toast("Check the cost");return;}
+    const link=cleanLink(d.link); if(String(d.link||"").trim()&&!link){toast("Links should start with https://");return;}
+    const item={what,for:d.for||"",by:d.by||"",cost:cost??null,link,note:String(d.note||"").trim()};
+    const list=bookItems(t);
+    const next=f.id?list.map(x=>x.id===f.id?{...x,...item}:x):[...list,{id:newItemId(),...item,done:false,doneAt:null}];
+    b.disabled=true;
+    try{await saveToBook(id,next);UI.bookForm=null;render();toast(f.id?"Saved":"Added");}catch(e){b.disabled=false;}});
+  app.querySelectorAll("[data-tbdel]").forEach(b=>b.onclick=async()=>{const [id,iid]=split(b.dataset.tbdel);const key="tbdel:"+iid;
+    if(UI.confirm!==key){UI.confirm=key;b.textContent="Tap again to delete";return;}
+    const t=S.trips.find(x=>x.id===id);if(!t)return;
+    try{await saveToBook(id,bookItems(t).filter(x=>x.id!==iid));UI.bookForm=null;UI.confirm=null;render();toast("Deleted");}catch(e){}});
+  app.querySelectorAll("[data-tbpasteadd]").forEach(b=>b.onclick=async()=>{const id=b.dataset.tbpasteadd;const t=S.trips.find(x=>x.id===id);if(!t)return;
+    const text=(document.getElementById("tb-paste")||{}).value||"";
+    const {items:add,errors}=parseLines(text,t);
+    if(errors.length){toast(errors[0]+(errors.length>1?` (+${errors.length-1} more)`:""));return;}
+    if(!add.length){toast("Nothing to add");return;}
+    b.disabled=true;
+    try{await saveToBook(id,[...bookItems(t),...add]);UI.bookPaste=null;UI.bookPasteText="";render();toast(add.length===1?"1 item added":`${add.length} items added`);}catch(e){b.disabled=false;}});
+}
+
 export function bindTravel(app){
   const render=()=>bus.render();
   app.querySelectorAll("[data-gotravel]").forEach(b=>b.onclick=()=>{UI.tab="travel";UI.editTrip=null;UI.openTrip=null;ls.set("ppl_tab","travel");render();window.scrollTo(0,0)});
-  app.querySelectorAll("[data-opentrip]").forEach(b=>b.onclick=()=>{UI.tab="travel";UI.editTrip=null;UI.openTrip=b.dataset.opentrip;UI.confirm=null;ls.set("ppl_tab","travel");render();window.scrollTo(0,0)});
-  app.querySelectorAll("[data-closetrip]").forEach(b=>b.onclick=()=>{UI.openTrip=null;render();window.scrollTo(0,0)});
+  app.querySelectorAll("[data-opentrip]").forEach(b=>b.onclick=()=>{UI.tab="travel";UI.editTrip=null;UI.openTrip=b.dataset.opentrip;UI.confirm=null;UI.bookForm=null;UI.bookPaste=null;ls.set("ppl_tab","travel");render();
+    const el=b.dataset.tbfocus&&document.getElementById("tobook"); if(el) el.scrollIntoView({block:"start"}); else window.scrollTo(0,0)});
+  app.querySelectorAll("[data-closetrip]").forEach(b=>b.onclick=()=>{UI.openTrip=null;UI.bookForm=null;UI.bookPaste=null;render();window.scrollTo(0,0)});
+  bindToBook(app);
   app.querySelectorAll("[data-cal]").forEach(d=>d.ontoggle=()=>{if(d.isConnected)UI.calOpen=d.open});
   const setStatus=async(id,status,msg)=>{const t=S.trips.find(x=>x.id===id);if(!t)return;await guard(saveTrip({...t,status}));toast(msg)};
   app.querySelectorAll("[data-chargevac]").forEach(b=>b.onclick=async()=>{const t=S.trips.find(x=>x.id===b.dataset.chargevac);if(!t)return;

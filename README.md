@@ -91,6 +91,9 @@ All data lives under `users/{uid}/`:
   Block types are `vacation`, `yearEnd` and `wfi` (work abroad: India or another EU country, one shared budget). Only weekdays that aren't Bavarian public holidays are charged.
   `carry: true` charges a January block to the previous year (allowed only directly after the year-end block).
   Trips with status `idea` don't count against the balance.
+  Trips can also carry `toBook: [{ id, what, for, by, cost, link, note, done, doneAt }]`: the trip page's "To book" list
+  (what to book, the date it's for, the date to book it by). The most urgent open item shows on Today; a list can be pasted
+  one item per line as `what ; for ; book by ; cost ; link`.
 - `fares/{tripId}`: `{ checkedAt, key, results: [{ depart, return, price, airline, stops, fromAirport, toAirport, level, url }] }`.
 - `leave/{year}`: `{ vacation, yearEnd, wfi }` budgets. Defaults: 30 vacation (6 of them held for year-end) and 15 work from India.
 
