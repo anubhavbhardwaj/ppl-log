@@ -1,7 +1,7 @@
 /* Cadence: app shell. Tabs: Today, Gym, Travel. */
 import {$,esc,WD,ls,UI,bus} from "./util.js";
 import {S,initStore,login,logout} from "./store.js";
-import {gymToday,weekStrip,renderGym,bindGym,renderWorkout,bindWorkout,setTripOn} from "./gym.js";
+import {gymToday,weekStrip,renderGym,bindGym,renderWorkout,bindWorkout,setTripOn,monthCountBar} from "./gym.js";
 import {travelToday,currentTrip,renderTravel,bindTravel} from "./travel.js";
 import {tripOn} from "./leave.js";
 
@@ -31,6 +31,7 @@ function renderToday(){
   const now=new Date();
   return `<div class="stack">
     <div class="spread"><h1>Cadence</h1><span class="small muted">${WD[now.getDay()]} ${now.toLocaleDateString(undefined,{day:"numeric",month:"short"})}</span></div>
+    ${monthCountBar()}
     ${travelToday()}
     ${weekStrip(ds=>tripOn(S.trips,ds))}
     ${gymToday(currentTrip(),ds=>tripOn(S.trips,ds))}

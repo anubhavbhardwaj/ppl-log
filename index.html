@@ -123,6 +123,10 @@ details summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13p
 @media (prefers-reduced-motion: no-preference){.btn,.cell{transition:transform .08s}.btn:active{transform:scale(.98)}}
 /* segmented control */
 .seg{display:grid;grid-template-columns:1fr 1fr;background:var(--surface-2);border-radius:10px;padding:3px;gap:3px}
+.monthbar{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:center;text-align:left;width:100%;color:var(--fg);font:inherit;cursor:pointer}
+.mb-num{font-family:var(--display);font-weight:800;font-size:40px;line-height:1;grid-row:span 1}
+.mb-meter{grid-column:1/-1;height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
+.mb-meter span{display:block;height:100%;background:var(--good)}
 .seg.seg3{grid-template-columns:1fr 1fr 1fr}
 .sched li{padding:6px 0;border-bottom:1px solid var(--line);align-items:center}
 .sched li.today{background:var(--surface-2);border-radius:8px;padding:6px 8px}
