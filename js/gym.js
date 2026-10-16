@@ -138,6 +138,22 @@ function bwForm(compact){
     <div class="row" style="margin-top:4px"><input id="bw" class="field num" style="max-width:110px;margin:0" type="number" inputmode="decimal" min="30" max="250" step="0.1" placeholder="kg" value="${bodyweight()||""}"><span class="small muted">kg</span><button class="btn sm" data-savebw>Save</button></div></div>`;
 }
 
+/* ---------- Month count ----------
+   Days with a finished gym workout this calendar month (one per date, even if two sessions were logged),
+   compared with the scheduled gym days (Mon, Fri, Sat, Sun) so far this month. */
+export function monthGymCount(){
+  const t=todayStr(), m=t.slice(0,7);
+  const done=new Set(S.logs.filter(l=>l.type==="gym"&&(l.date||"").startsWith(m)&&l.date<=t).map(l=>l.date));
+  let planned=0; for(let d=m+"-01";d<=t;d=addDay(d,1)) if(isGymDay(parseYmd(d).getDay())) planned++;
+  return {days:done.size,planned,month:parseYmd(t).toLocaleDateString(undefined,{month:"long"})};
+}
+export function monthCountBar(){
+  const c=monthGymCount();
+  return `<button class="card monthbar" data-gymview="history"><span class="mb-num num">${c.days}</span>
+    <span><b>gym day${c.days===1?"":"s"} in ${esc(c.month)}</b><br><span class="small muted">${c.planned} scheduled so far this month</span></span>
+    <span class="mb-meter" aria-hidden="true"><span style="width:${c.planned?Math.min(100,c.days/c.planned*100):0}%"></span></span></button>`;
+}
+
 /* ---------- Today ---------- */
 // tripOn(date) -> trip or null. On trip days the PPL sequence pauses and a travel session is suggested.
 export function weekStrip(tripOn){
@@ -284,7 +300,7 @@ function delCtl(l){return UI.confirm==="del:"+l.id?`<div class="row" style="marg
 export function bindGym(app){
   const render=()=>bus.render();
   app.querySelectorAll("[data-start]").forEach(b=>b.onclick=()=>startWorkout(Number(b.dataset.start)));
-  app.querySelectorAll("[data-gymview]").forEach(b=>b.onclick=()=>{UI.gymView=b.dataset.gymview;UI.preview=null;UI.confirm=null;ls.set("cad_gymview",UI.gymView);render()});
+  app.querySelectorAll("[data-gymview]").forEach(b=>b.onclick=()=>{UI.tab="gym";ls.set("ppl_tab","gym");UI.gymView=b.dataset.gymview;UI.preview=null;UI.confirm=null;ls.set("cad_gymview",UI.gymView);render()});
   app.querySelectorAll("[data-preview]").forEach(b=>b.onclick=()=>{UI.tab="gym";UI.gymView="plan";UI.preview=Number(b.dataset.preview);UI.confirm=null;render();window.scrollTo(0,0)});
   app.querySelectorAll("[data-back]").forEach(b=>b.onclick=()=>{UI.preview=null;UI.confirm=null;render()});
   app.querySelectorAll("[data-askset]").forEach(b=>b.onclick=()=>{UI.confirm="setnext";render()});
